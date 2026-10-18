@@ -1073,42 +1073,62 @@ impl LinrarApp {
             ViewMode::LocalFileSystem => self.selected_local.first().cloned(),
         };
 
-        if let Some(path) = target
-            && is_supported_archive(&path)
-        {
-            let arch_type = detect_archive_type(&path);
-            let res = match arch_type {
-                ArchiveType::Zip => ZipEngine::test(&path),
-                ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
-                    TarEngine::test(&path, arch_type)
-                }
-                _ => RarEngine::test(&path),
-            };
+        if let Some(path) = target {
+            if is_supported_archive(&path) {
+                let arch_type = detect_archive_type(&path);
+                let res = match arch_type {
+                    ArchiveType::Zip => ZipEngine::test(&path),
+                    ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
+                        TarEngine::test(&path, arch_type)
+                    }
+                    _ => RarEngine::test(&path),
+                };
 
-            match res {
-                Ok(true) => {
-                    self.dialog_state = DialogState::Message {
+                match res {
+                    Ok(true) => {
+                        self.dialog_state = DialogState::Message {
                             title: "Test Archive Integrity".to_string(),
-                            message: "All archive files passed integrity verification successfully. No errors found!".to_string(),
+                            message: format!(
+                                "Archive: {}\n\nAll archive files passed integrity verification successfully. No errors found!",
+                                path.file_name().unwrap_or_default().to_string_lossy()
+                            ),
                             is_error: false,
                         };
+                    }
+                    Ok(false) => {
+                        self.dialog_state = DialogState::Message {
+                            title: "Test Archive Integrity".to_string(),
+                            message: format!(
+                                "Archive: {}\n\nErrors were detected during archive integrity testing.",
+                                path.file_name().unwrap_or_default().to_string_lossy()
+                            ),
+                            is_error: true,
+                        };
+                    }
+                    Err(e) => {
+                        self.dialog_state = DialogState::Message {
+                            title: "Test Archive Error".to_string(),
+                            message: e,
+                            is_error: true,
+                        };
+                    }
                 }
-                Ok(false) => {
-                    self.dialog_state = DialogState::Message {
-                        title: "Test Archive Integrity".to_string(),
-                        message: "Errors were detected during archive integrity testing."
-                            .to_string(),
-                        is_error: true,
-                    };
-                }
-                Err(e) => {
-                    self.dialog_state = DialogState::Message {
-                        title: "Test Archive Error".to_string(),
-                        message: e,
-                        is_error: true,
-                    };
-                }
+            } else {
+                self.dialog_state = DialogState::Message {
+                    title: "Test Archive".to_string(),
+                    message: format!(
+                        "'{}' is not a supported archive format.\nPlease select a valid RAR, ZIP, or TAR archive to test.",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                    is_error: false,
+                };
             }
+        } else {
+            self.dialog_state = DialogState::Message {
+                title: "Test Archive".to_string(),
+                message: "Please open an archive or select a supported archive file (.rar, .zip, .tar, etc.) to test its integrity.".to_string(),
+                is_error: false,
+            };
         }
     }
 
@@ -1378,6 +1398,13 @@ impl LinrarApp {
                 } else {
                     self.open_archive(&arch);
                 }
+            } else {
+                self.dialog_state = DialogState::Message {
+                    title: "Delete".to_string(),
+                    message: "Please select one or more files in the archive to delete."
+                        .to_string(),
+                    is_error: false,
+                };
             }
         } else if !self.selected_local.is_empty() {
             for p in &self.selected_local {
@@ -1388,14 +1415,39 @@ impl LinrarApp {
                 }
             }
             self.refresh_local();
+        } else {
+            self.dialog_state = DialogState::Message {
+                title: "Delete".to_string(),
+                message: "Please select one or more files or folders to delete.".to_string(),
+                is_error: false,
+            };
         }
     }
 
     fn trigger_view_file(&mut self) {
-        if self.view_mode == ViewMode::LocalFileSystem
-            && let Some(first) = self.selected_local.first()
-        {
-            let _ = std::process::Command::new("xdg-open").arg(first).spawn();
+        match self.view_mode {
+            ViewMode::LocalFileSystem => {
+                if let Some(first) = self.selected_local.first() {
+                    let _ = std::process::Command::new("xdg-open").arg(first).spawn();
+                } else {
+                    self.dialog_state = DialogState::Message {
+                        title: "View File".to_string(),
+                        message:
+                            "Please select a file to view with the default system application."
+                                .to_string(),
+                        is_error: false,
+                    };
+                }
+            }
+            ViewMode::VirtualArchive => {
+                self.dialog_state = DialogState::Message {
+                    title: "View File".to_string(),
+                    message:
+                        "Please extract the file or use Extract To to view files inside an archive."
+                            .to_string(),
+                    is_error: false,
+                };
+            }
         }
     }
 
