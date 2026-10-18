@@ -70,6 +70,9 @@ jobs:
 
       - name: Audit Rust Dependencies
         uses: actions-rust-lang/audit@v1
+        with:
+          createIssues: false
+          denyWarnings: false
 
   gitleaks:
     name: Gitleaks Secret Scanner

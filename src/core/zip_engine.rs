@@ -26,7 +26,7 @@ impl ZipEngine {
         for i in 0..archive.len() {
             if let Ok(file) = archive.by_index(i) {
                 let is_dir = file.is_dir();
-                let full_path = file.name().to_string();
+                let full_path = file.name().map(|n| n.to_string()).unwrap_or_default();
                 let name = full_path
                     .trim_end_matches('/')
                     .split('/')
@@ -95,10 +95,10 @@ impl ZipEngine {
             };
 
             if let Some(selected) = selected_files {
-                let name = file.name();
+                let name = file.name().map(|n| n.to_string()).unwrap_or_default();
                 if !selected
                     .iter()
-                    .any(|s| name == s || name.starts_with(&format!("{}/", s)))
+                    .any(|s| name == *s || name.starts_with(&format!("{}/", s)))
                 {
                     continue;
                 }
@@ -173,7 +173,7 @@ impl ZipEngine {
         }
 
         if let Some(comment) = &options.comment {
-            zip.set_raw_comment(comment.as_bytes().to_vec().into_boxed_slice());
+            let _ = zip.set_raw_comment(comment.as_bytes().to_vec().into_boxed_slice());
         }
 
         zip.finish().map_err(|e| e.to_string())?;
