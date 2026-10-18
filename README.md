@@ -11,7 +11,6 @@
 <p align="center">
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="#version"><img src="https://img.shields.io/badge/version-v0.1.0-green.svg" alt="Version: 0.1.0"></a>
-  <a href="#rust"><img src="https://img.shields.io/badge/rust-2024_edition-orange.svg" alt="Rust 2024"></a>
   <a href="#platform"><img src="https://img.shields.io/badge/platform-Linux-lightgrey.svg" alt="Platform: Linux"></a>
   <a href="#security"><img src="https://img.shields.io/badge/security-ClamAV_%26_Heuristics-brightgreen.svg" alt="Security: ClamAV & Heuristics"></a>
 </p>
