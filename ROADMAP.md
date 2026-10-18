@@ -31,7 +31,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Arsip** | Smart Bypass (High-Speed Archiving) | Skip re-compressing media (mp4, jpg) | **Planned** | Roadmap Fase 2 |
 | **Arsip** | Self-Extracting Archive (SFX) | Linux ELF executable stub | **Planned** | Roadmap Fase 3 |
 | **GUI & UX** | Unified CSD Titlebar | Vector-drawn controls, borderless resize | **Full** | `app.rs` (`custom_title_bar`) |
-| **GUI & UX** | Quick Look / In-Archive File Preview | Preview teks/gambar tanpa ekstrak | **Planned** | Roadmap Fase 2 |
+| **GUI & UX** | Quick Look / In-Archive File Preview | Preview teks/gambar langsung via default system app | **Full** | `app.rs` (`trigger_view_file`, double-click) |
 | **GUI & UX** | Drag-and-Drop (DND) Masuk & Keluar | Interaksi langsung dengan file manager | **Planned** | Roadmap Fase 2 |
 | **GUI & UX** | Smart Extraction ("Extract Here - Smart") | Deteksi single-folder vs loose files | **Planned** | Roadmap Fase 2 |
 | **GUI & UX** | Code Page / Encoding Selector | Anti-mojibake (Shift-JIS, CP949, GBK) | **Planned** | Roadmap Fase 2 |
@@ -74,3 +74,9 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
 - **Sebelumnya**: TAR.GZ dan TAR.BZ2 ditandai `is_solid: false` padahal secara arsitektural merupakan solid stream.
 - **Penyempurnaan**:
   - Menandai TAR.GZ dan TAR.BZ2 sebagai `is_solid: true` secara akurat pada `ArchiveInfo`.
+
+### F. Quick Look & In-Archive File Preview (Double-Click to View)
+- **Sebelumnya**: Tombol "View" saat melihat file di dalam arsip hanya menampilkan pesan petunjuk untuk mengekstrak manual.
+- **Penyempurnaan**:
+  - Mengekstrak file terpilih secara otomatis ke direktori pratinjau sementara (`/tmp/linrar_preview_<pid>/...`) dan membukanya langsung menggunakan aplikasi default sistem via `xdg-open`.
+  - Mendukung pembukaan file melalui klik dua kali (*double-click*) pada tabel file di dalam arsip maupun pada sistem file lokal.

@@ -1129,6 +1129,10 @@ impl LinrarApp {
                                 to_navigate = Some(item.path.clone());
                             } else if is_supported_archive(&item.path) {
                                 to_open_archive = Some(item.path.clone());
+                            } else {
+                                let _ = std::process::Command::new("xdg-open")
+                                    .arg(&item.path)
+                                    .spawn();
                             }
                         }
                     });
@@ -1144,6 +1148,7 @@ impl LinrarApp {
 
     fn render_archive_table(&mut self, ui: &mut egui::Ui) {
         let mut enter_folder = None;
+        let mut to_view_file = false;
         let visible_entries = self.visible_archive_entries();
         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
 
@@ -1245,8 +1250,12 @@ impl LinrarApp {
                             }
                         }
 
-                        if resp.double_clicked() && entry.is_dir {
-                            enter_folder = Some(entry.name.clone());
+                        if resp.double_clicked() {
+                            if entry.is_dir {
+                                enter_folder = Some(entry.name.clone());
+                            } else {
+                                to_view_file = true;
+                            }
                         }
                     });
                 }
@@ -1258,6 +1267,10 @@ impl LinrarApp {
             } else {
                 self.archive_subpath = format!("{}/{}", self.archive_subpath, folder);
             }
+        }
+
+        if to_view_file {
+            self.trigger_view_file();
         }
     }
 
@@ -1734,13 +1747,76 @@ impl LinrarApp {
                 }
             }
             ViewMode::VirtualArchive => {
-                self.dialog_state = DialogState::Message {
-                    title: "View File".to_string(),
-                    message:
-                        "Please extract the file or use Extract To to view files inside an archive."
-                            .to_string(),
-                    is_error: false,
-                };
+                if let Some(arch) = &self.current_archive
+                    && let Some(first) = self.selected_archive_files.first()
+                {
+                    let temp_dir =
+                        std::env::temp_dir().join(format!("linrar_preview_{}", std::process::id()));
+                    let _ = fs::create_dir_all(&temp_dir);
+
+                    let files_slice = std::slice::from_ref(first);
+                    let arch_type = detect_archive_type(arch);
+                    let ext_res = match arch_type {
+                        ArchiveType::Zip => {
+                            ZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
+                        }
+                        ArchiveType::TarGz => TarEngine::extract(
+                            arch,
+                            &temp_dir,
+                            ArchiveType::TarGz,
+                            Some(files_slice),
+                        ),
+                        ArchiveType::TarBz2 => TarEngine::extract(
+                            arch,
+                            &temp_dir,
+                            ArchiveType::TarBz2,
+                            Some(files_slice),
+                        ),
+                        ArchiveType::Tar => {
+                            TarEngine::extract(arch, &temp_dir, ArchiveType::Tar, Some(files_slice))
+                        }
+                        _ => RarEngine::extract(arch, &temp_dir, Some(files_slice), None),
+                    };
+
+                    match ext_res {
+                        Ok(()) => {
+                            let target_file = temp_dir.join(first);
+                            if target_file.exists() {
+                                let _ = std::process::Command::new("xdg-open")
+                                    .arg(&target_file)
+                                    .spawn();
+                            } else {
+                                let filename = Path::new(first).file_name().unwrap_or_default();
+                                let flat_target = temp_dir.join(filename);
+                                if flat_target.exists() {
+                                    let _ = std::process::Command::new("xdg-open")
+                                        .arg(&flat_target)
+                                        .spawn();
+                                } else {
+                                    self.dialog_state = DialogState::Message {
+                                        title: "View File Error".to_string(),
+                                        message: "Could not locate extracted preview file."
+                                            .to_string(),
+                                        is_error: true,
+                                    };
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            self.dialog_state = DialogState::Message {
+                                title: "View File Error".to_string(),
+                                message: format!("Failed to extract file for viewing: {}", e),
+                                is_error: true,
+                            };
+                        }
+                    }
+                } else {
+                    self.dialog_state = DialogState::Message {
+                        title: "View File".to_string(),
+                        message: "Please select a file inside the archive to view.".to_string(),
+                        is_error: false,
+                    };
+                }
             }
         }
     }
