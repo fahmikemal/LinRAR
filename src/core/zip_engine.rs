@@ -4,7 +4,10 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use crate::types::{AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel};
+use crate::core::volume::VolumeManager;
+use crate::types::{
+    AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel, format_unix_mode,
+};
 
 pub struct ZipEngine;
 
@@ -24,7 +27,7 @@ impl ZipEngine {
         let mut total_folders = 0;
 
         for i in 0..archive.len() {
-            if let Ok(file) = archive.by_index(i) {
+            if let Ok(file) = archive.by_index_raw(i) {
                 let is_dir = file.is_dir();
                 let full_path = file.name().map(|n| n.to_string()).unwrap_or_default();
                 let name = full_path
@@ -47,16 +50,38 @@ impl ZipEngine {
                     total_files += 1;
                 }
 
+                let modified = if let Some(dt) = file.last_modified() {
+                    format!(
+                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                        dt.year(),
+                        dt.month(),
+                        dt.day(),
+                        dt.hour(),
+                        dt.minute(),
+                        dt.second()
+                    )
+                } else {
+                    "-".to_string()
+                };
+
+                let attributes = if let Some(mode) = file.unix_mode() {
+                    format_unix_mode(mode, is_dir)
+                } else if is_dir {
+                    "drwxr-xr-x".to_string()
+                } else {
+                    "-rw-r--r--".to_string()
+                };
+
                 entries.push(ArchiveEntry {
                     name,
                     full_path,
                     size,
                     packed_size,
-                    modified: "-".to_string(),
+                    modified,
                     crc,
                     is_dir,
                     encrypted,
-                    attributes: "-".to_string(),
+                    attributes,
                 });
             }
         }
@@ -81,6 +106,7 @@ impl ZipEngine {
         archive_path: P,
         dest_dir: D,
         selected_files: Option<&[String]>,
+        password: Option<&str>,
     ) -> Result<(), String> {
         let file = File::open(archive_path.as_ref()).map_err(|e| e.to_string())?;
         let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -88,7 +114,13 @@ impl ZipEngine {
         fs::create_dir_all(dest).map_err(|e| e.to_string())?;
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let mut file = if let Some(pwd) = password.filter(|p| !p.is_empty()) {
+                archive.by_index_decrypt(i, pwd.as_bytes())
+            } else {
+                archive.by_index(i)
+            }
+            .map_err(|e| e.to_string())?;
+
             let outpath = match file.enclosed_name() {
                 Some(path) => dest.join(path),
                 None => continue,
@@ -114,6 +146,14 @@ impl ZipEngine {
                 }
                 let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
                 std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Some(mode) = file.unix_mode() {
+                        let _ = fs::set_permissions(&outpath, fs::Permissions::from_mode(mode));
+                    }
+                }
             }
         }
 
@@ -125,17 +165,14 @@ impl ZipEngine {
         source_paths: &[PathBuf],
         options: &AddOptions,
     ) -> Result<(), String> {
-        let file = File::create(archive_path.as_ref()).map_err(|e| e.to_string())?;
+        let arch_ref = archive_path.as_ref();
+        let file = File::create(arch_ref).map_err(|e| e.to_string())?;
         let mut zip = ZipWriter::new(file);
 
         let method = match options.compression_level {
             CompressionLevel::Store => CompressionMethod::Stored,
             _ => CompressionMethod::Deflated,
         };
-
-        let file_options = SimpleFileOptions::default()
-            .compression_method(method)
-            .unix_permissions(0o755);
 
         for src in source_paths {
             if !src.exists() {
@@ -148,6 +185,25 @@ impl ZipEngine {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
+
+                #[cfg(unix)]
+                let permissions = {
+                    use std::os::unix::fs::MetadataExt;
+                    src.metadata().map(|m| m.mode()).unwrap_or(0o644)
+                };
+                #[cfg(not(unix))]
+                let permissions = 0o644;
+
+                let mut file_options = SimpleFileOptions::default()
+                    .compression_method(method)
+                    .unix_permissions(permissions);
+
+                if let Some(pwd) = &options.password
+                    && !pwd.is_empty()
+                {
+                    file_options = file_options.with_aes_encryption(zip::AesMode::Aes256, pwd);
+                }
+
                 zip.start_file(filename, file_options)
                     .map_err(|e| e.to_string())?;
                 let mut f = File::open(src).map_err(|e| e.to_string())?;
@@ -158,6 +214,34 @@ impl ZipEngine {
                     let path = entry.path();
                     let relative = path.strip_prefix(base_parent).unwrap_or(path);
                     let relative_str = relative.to_string_lossy().replace('\\', "/");
+
+                    #[cfg(unix)]
+                    let permissions = {
+                        use std::os::unix::fs::MetadataExt;
+                        entry.metadata().map(|m| m.mode()).unwrap_or(
+                            if entry.file_type().is_dir() {
+                                0o755
+                            } else {
+                                0o644
+                            },
+                        )
+                    };
+                    #[cfg(not(unix))]
+                    let permissions = if entry.file_type().is_dir() {
+                        0o755
+                    } else {
+                        0o644
+                    };
+
+                    let mut file_options = SimpleFileOptions::default()
+                        .compression_method(method)
+                        .unix_permissions(permissions);
+
+                    if let Some(pwd) = &options.password
+                        && !pwd.is_empty()
+                    {
+                        file_options = file_options.with_aes_encryption(zip::AesMode::Aes256, pwd);
+                    }
 
                     if entry.file_type().is_dir() {
                         zip.add_directory(format!("{}/", relative_str), file_options)
@@ -177,15 +261,32 @@ impl ZipEngine {
         }
 
         zip.finish().map_err(|e| e.to_string())?;
+
+        // If volume_size is specified, split the created archive into chunks
+        if let Some(vol_str) = &options.volume_size
+            && !vol_str.trim().is_empty()
+        {
+            let chunk_size = VolumeManager::parse_size(vol_str)?;
+            let parts = VolumeManager::split_file(arch_ref, chunk_size, None)?;
+            if parts.len() > 1 {
+                let _ = fs::remove_file(arch_ref);
+            }
+        }
+
         Ok(())
     }
 
-    pub fn test<P: AsRef<Path>>(archive_path: P) -> Result<bool, String> {
+    pub fn test<P: AsRef<Path>>(archive_path: P, password: Option<&str>) -> Result<bool, String> {
         let file = File::open(archive_path.as_ref()).map_err(|e| e.to_string())?;
         let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let mut file = if let Some(pwd) = password.filter(|p| !p.is_empty()) {
+                archive.by_index_decrypt(i, pwd.as_bytes())
+            } else {
+                archive.by_index(i)
+            }
+            .map_err(|e| e.to_string())?;
             let mut sink = std::io::sink();
             std::io::copy(&mut file, &mut sink).map_err(|e| e.to_string())?;
         }

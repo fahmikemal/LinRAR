@@ -9,8 +9,9 @@ use crate::core::rar_engine::RarEngine;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::VirusScanner;
 use crate::core::tar_engine::TarEngine;
+use crate::core::volume::VolumeManager;
 use crate::core::zip_engine::ZipEngine;
-use crate::types::{AddOptions, ArchiveType, CompressionLevel};
+use crate::types::{AddOptions, ArchiveType, CompressionLevel, format_unix_mode};
 
 fn setup_test_files() -> (tempfile::TempDir, Vec<PathBuf>) {
     let tmp = tempfile::tempdir().unwrap();
@@ -67,7 +68,7 @@ fn test_zip_lifecycle() {
     assert!(entries.iter().any(|e| e.name == "hello.txt"));
 
     // Extract
-    ZipEngine::extract(&zip_path, &extract_dir, None).unwrap();
+    ZipEngine::extract(&zip_path, &extract_dir, None, None).unwrap();
     assert_eq!(
         fs::read_to_string(extract_dir.join("hello.txt")).unwrap(),
         "Hello from LinRAR Pure Rust!"
@@ -267,6 +268,125 @@ fn test_zip_and_tar_integrity() {
     )
     .unwrap();
 
-    assert!(ZipEngine::test(&zip_path).unwrap());
+    assert!(ZipEngine::test(&zip_path, None).unwrap());
     assert!(TarEngine::test(&targz_path, ArchiveType::TarGz).unwrap());
+}
+
+#[test]
+fn test_zip_aes_encryption() {
+    let (tmp, sources) = setup_test_files();
+    let zip_path = tmp.path().join("encrypted.zip");
+    let extract_dir = tmp.path().join("enc_out");
+
+    let pwd = "LinRAR_Strong_Pwd#2026";
+    let opts = AddOptions {
+        password: Some(pwd.to_string()),
+        compression_level: CompressionLevel::Best,
+        ..Default::default()
+    };
+
+    // Create encrypted ZIP
+    ZipEngine::create(&zip_path, &sources, &opts).unwrap();
+    assert!(zip_path.exists());
+
+    // Verify metadata shows encrypted
+    let (info, entries) = ZipEngine::read_entries(&zip_path).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::Zip);
+    let hello_entry = entries.iter().find(|e| e.name == "hello.txt").unwrap();
+    assert!(hello_entry.encrypted);
+
+    // Testing with wrong password should fail
+    assert!(ZipEngine::test(&zip_path, Some("wrong_password")).is_err());
+
+    // Testing with correct password should pass
+    assert!(ZipEngine::test(&zip_path, Some(pwd)).unwrap());
+
+    // Extracting with wrong password should fail
+    let bad_dir = tmp.path().join("bad_out");
+    assert!(ZipEngine::extract(&zip_path, &bad_dir, None, Some("wrong_password")).is_err());
+
+    // Extracting with correct password should succeed and verify content
+    ZipEngine::extract(&zip_path, &extract_dir, None, Some(pwd)).unwrap();
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+}
+
+#[test]
+fn test_volume_manager_split_and_join() {
+    // 1. Test size parsing
+    assert_eq!(VolumeManager::parse_size("10K").unwrap(), 10 * 1024);
+    assert_eq!(VolumeManager::parse_size("5M").unwrap(), 5 * 1024 * 1024);
+    assert_eq!(VolumeManager::parse_size("1G").unwrap(), 1024 * 1024 * 1024);
+    assert_eq!(VolumeManager::parse_size("1048576").unwrap(), 1048576);
+    assert!(VolumeManager::parse_size("invalid").is_err());
+    assert!(VolumeManager::parse_size("").is_err());
+
+    // 2. Test split and join
+    let tmp = tempfile::tempdir().unwrap();
+    let original_file = tmp.path().join("large_payload.bin");
+
+    // Generate 50 KB dummy payload
+    let test_data: Vec<u8> = (0..50 * 1024).map(|i| (i % 256) as u8).collect();
+    fs::write(&original_file, &test_data).unwrap();
+
+    // Split into 16 KB volumes (should produce 4 chunks: 16k, 16k, 16k, 2k)
+    let chunk_size = 16 * 1024;
+    let parts = VolumeManager::split_file(&original_file, chunk_size, None).unwrap();
+    assert_eq!(parts.len(), 4);
+    assert!(parts[0].to_string_lossy().ends_with(".001"));
+    assert!(parts[1].to_string_lossy().ends_with(".002"));
+    assert!(parts[2].to_string_lossy().ends_with(".003"));
+    assert!(parts[3].to_string_lossy().ends_with(".004"));
+
+    // Verify finding volume parts
+    let found_parts = VolumeManager::find_volume_parts(&parts[0]).unwrap();
+    assert_eq!(found_parts, parts);
+
+    // Reconstruct file
+    let joined_file = tmp.path().join("reconstructed_payload.bin");
+    VolumeManager::join_files(&parts, &joined_file).unwrap();
+
+    let joined_data = fs::read(&joined_file).unwrap();
+    assert_eq!(joined_data, test_data);
+}
+
+#[test]
+fn test_unix_permissions_formatting() {
+    assert_eq!(format_unix_mode(0o755, false), "-rwxr-xr-x");
+    assert_eq!(format_unix_mode(0o644, false), "-rw-r--r--");
+    assert_eq!(format_unix_mode(0o700, false), "-rwx------");
+    assert_eq!(format_unix_mode(0o755, true), "drwxr-xr-x");
+    assert_eq!(format_unix_mode(0o600, false), "-rw-------");
+}
+
+#[test]
+fn test_zip_volume_splitting() {
+    let tmp = tempfile::tempdir().unwrap();
+    let large_file = tmp.path().join("payload.bin");
+    // Generate 10 KB incompressible pseudo-random bytes
+    let data: Vec<u8> = (0..10_000).map(|i| ((i * 37 + 13) % 256) as u8).collect();
+    fs::write(&large_file, &data).unwrap();
+    let sources = vec![large_file];
+
+    let zip_path = tmp.path().join("split_test.zip");
+    let opts = AddOptions {
+        compression_level: CompressionLevel::Store,
+        volume_size: Some("2K".to_string()),
+        ..Default::default()
+    };
+
+    ZipEngine::create(&zip_path, &sources, &opts).unwrap();
+
+    let first_part = tmp.path().join("split_test.zip.001");
+    assert!(first_part.exists());
+    let parts = VolumeManager::find_volume_parts(&first_part).unwrap();
+    assert!(parts.len() > 1);
+
+    // Reconstruct and verify
+    let joined = tmp.path().join("reconstructed.zip");
+    VolumeManager::join_files(&parts, &joined).unwrap();
+    assert!(joined.exists());
+    assert!(ZipEngine::test(&joined, None).unwrap());
 }

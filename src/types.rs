@@ -112,3 +112,20 @@ impl Default for AddOptions {
         }
     }
 }
+
+pub fn format_unix_mode(mode: u32, is_dir: bool) -> String {
+    let type_char = if is_dir { 'd' } else { '-' };
+    let r1 = if mode & 0o400 != 0 { 'r' } else { '-' };
+    let w1 = if mode & 0o200 != 0 { 'w' } else { '-' };
+    let x1 = if mode & 0o100 != 0 { 'x' } else { '-' };
+    let r2 = if mode & 0o040 != 0 { 'r' } else { '-' };
+    let w2 = if mode & 0o020 != 0 { 'w' } else { '-' };
+    let x2 = if mode & 0o010 != 0 { 'x' } else { '-' };
+    let r3 = if mode & 0o004 != 0 { 'r' } else { '-' };
+    let w3 = if mode & 0o002 != 0 { 'w' } else { '-' };
+    let x3 = if mode & 0o001 != 0 { 'x' } else { '-' };
+    format!(
+        "{}{}{}{}{}{}{}{}{}{}",
+        type_char, r1, w1, x1, r2, w2, x2, r3, w3, x3
+    )
+}

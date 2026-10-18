@@ -116,7 +116,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 dest_path.display()
             );
             let res = match arch_type {
-                ArchiveType::Zip => ZipEngine::extract(&arch_path, &dest_path, selected),
+                ArchiveType::Zip => {
+                    ZipEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref())
+                }
                 ArchiveType::TarGz => {
                     TarEngine::extract(&arch_path, &dest_path, ArchiveType::TarGz, selected)
                 }
@@ -211,7 +213,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             let arch_type = detect_archive_type(&arch_path);
             println!("LinRAR 0.1.0 - Testing archive integrity: {}", archive);
             let res = match arch_type {
-                ArchiveType::Zip => ZipEngine::test(&arch_path),
+                ArchiveType::Zip => ZipEngine::test(&arch_path, args.password.as_deref()),
                 ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
                     TarEngine::test(&arch_path, arch_type)
                 }

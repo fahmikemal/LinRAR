@@ -9,7 +9,10 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tar::{Archive, Builder};
 
-use crate::types::{AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType};
+use crate::core::volume::VolumeManager;
+use crate::types::{
+    AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel, format_unix_mode,
+};
 
 pub struct TarEngine;
 
@@ -56,16 +59,34 @@ impl TarEngine {
                 total_files += 1;
             }
 
+            let modified = if let Ok(mtime) = entry.header().mtime() {
+                if let Some(dt) = chrono::DateTime::from_timestamp(mtime as i64, 0) {
+                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                } else {
+                    "-".to_string()
+                }
+            } else {
+                "-".to_string()
+            };
+
+            let attributes = if let Ok(mode) = entry.header().mode() {
+                format_unix_mode(mode, is_dir)
+            } else if is_dir {
+                "drwxr-xr-x".to_string()
+            } else {
+                "-rw-r--r--".to_string()
+            };
+
             entries.push(ArchiveEntry {
                 name,
                 full_path,
                 size,
                 packed_size: size, // TAR doesn't track per-file compressed size
-                modified: "-".to_string(),
+                modified,
                 crc: "-".to_string(),
                 is_dir,
                 encrypted: false,
-                attributes: format!("{:o}", entry.header().mode().unwrap_or(0)),
+                attributes,
             });
         }
 
@@ -102,28 +123,28 @@ impl TarEngine {
         };
 
         let mut archive = Archive::new(boxed_reader);
-        let tar_entries = archive.entries().map_err(|e| e.to_string())?;
+        let entries = archive.entries().map_err(|e| e.to_string())?;
 
-        for mut entry in tar_entries.filter_map(|e| e.ok()) {
-            let path_buf = match entry.path() {
-                Ok(p) => p.into_owned(),
-                Err(_) => continue,
-            };
-            let path_str = path_buf.to_string_lossy();
+        for entry in entries {
+            let mut entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path().map_err(|e| e.to_string())?.into_owned();
+            let name = path.to_string_lossy().to_string();
 
             if let Some(selected) = selected_files
                 && !selected
                     .iter()
-                    .any(|s| path_str == *s || path_str.starts_with(&format!("{}/", s)))
+                    .any(|s| name == *s || name.starts_with(&format!("{}/", s)))
             {
                 continue;
             }
 
-            let outpath = dest.join(&path_buf);
+            let outpath = dest.join(&path);
             if entry.header().entry_type().is_dir() {
                 fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
             } else {
-                if let Some(p) = outpath.parent() {
+                if let Some(p) = outpath.parent()
+                    && !p.exists()
+                {
                     fs::create_dir_all(p).map_err(|e| e.to_string())?;
                 }
                 entry.unpack(&outpath).map_err(|e| e.to_string())?;
@@ -137,13 +158,26 @@ impl TarEngine {
         archive_path: P,
         source_paths: &[PathBuf],
         archive_type: ArchiveType,
-        _options: &AddOptions,
+        options: &AddOptions,
     ) -> Result<(), String> {
-        let file = File::create(archive_path.as_ref()).map_err(|e| e.to_string())?;
+        let arch_ref = archive_path.as_ref();
+        let file = File::create(arch_ref).map_err(|e| e.to_string())?;
+
+        let gz_comp = match options.compression_level {
+            CompressionLevel::Store | CompressionLevel::Fastest => GzCompression::fast(),
+            CompressionLevel::Good | CompressionLevel::Best => GzCompression::best(),
+            _ => GzCompression::default(),
+        };
+
+        let bz_comp = match options.compression_level {
+            CompressionLevel::Store | CompressionLevel::Fastest => BzCompression::fast(),
+            CompressionLevel::Good | CompressionLevel::Best => BzCompression::best(),
+            _ => BzCompression::default(),
+        };
 
         let boxed_writer: Box<dyn Write> = match archive_type {
-            ArchiveType::TarGz => Box::new(GzEncoder::new(file, GzCompression::default())),
-            ArchiveType::TarBz2 => Box::new(BzEncoder::new(file, BzCompression::default())),
+            ArchiveType::TarGz => Box::new(GzEncoder::new(file, gz_comp)),
+            ArchiveType::TarBz2 => Box::new(BzEncoder::new(file, bz_comp)),
             _ => Box::new(file),
         };
 
@@ -168,6 +202,18 @@ impl TarEngine {
         }
 
         builder.finish().map_err(|e| e.to_string())?;
+
+        // If volume_size is specified, split into chunk volumes
+        if let Some(vol_str) = &options.volume_size
+            && !vol_str.trim().is_empty()
+        {
+            let chunk_size = VolumeManager::parse_size(vol_str)?;
+            let parts = VolumeManager::split_file(arch_ref, chunk_size, None)?;
+            if parts.len() > 1 {
+                let _ = fs::remove_file(arch_ref);
+            }
+        }
+
         Ok(())
     }
 

@@ -29,7 +29,9 @@ impl ArchiveConverter {
 
         // 1. Extract source
         let ext_res = match src_type {
-            ArchiveType::Zip => ZipEngine::extract(src, &temp_dir, None),
+            ArchiveType::Zip => {
+                ZipEngine::extract(src, &temp_dir, None, options.password.as_deref())
+            }
             ArchiveType::TarGz => TarEngine::extract(src, &temp_dir, ArchiveType::TarGz, None),
             ArchiveType::TarBz2 => TarEngine::extract(src, &temp_dir, ArchiveType::TarBz2, None),
             ArchiveType::Tar => TarEngine::extract(src, &temp_dir, ArchiveType::Tar, None),

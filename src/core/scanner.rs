@@ -44,7 +44,7 @@ impl VirusScanner {
 
         // Extract archive to temp directory for inspection
         let extract_res = match arch_type {
-            ArchiveType::Zip => ZipEngine::extract(arch_path, &temp_dir, None),
+            ArchiveType::Zip => ZipEngine::extract(arch_path, &temp_dir, None, None),
             ArchiveType::TarGz => {
                 TarEngine::extract(arch_path, &temp_dir, ArchiveType::TarGz, None)
             }

@@ -1285,6 +1285,19 @@ impl LinrarApp {
     }
 
     fn trigger_add_dialog(&mut self) {
+        if self.view_mode == ViewMode::VirtualArchive
+            && let Some(info) = &self.archive_info
+            && info.is_locked
+        {
+            self.dialog_state = DialogState::Message {
+                title: "Archive Locked".to_string(),
+                message: "Cannot add files: this archive is locked against modifications."
+                    .to_string(),
+                is_error: true,
+            };
+            return;
+        }
+
         if self.selected_local.is_empty() {
             self.dialog_state = DialogState::Message {
                 title: "No Files Selected".to_string(),
@@ -1335,7 +1348,7 @@ impl LinrarApp {
             if is_supported_archive(&path) {
                 let arch_type = detect_archive_type(&path);
                 let res = match arch_type {
-                    ArchiveType::Zip => ZipEngine::test(&path),
+                    ArchiveType::Zip => ZipEngine::test(&path, None),
                     ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
                         TarEngine::test(&path, arch_type)
                     }
@@ -1595,12 +1608,24 @@ impl LinrarApp {
     }
 
     fn trigger_rename_dialog(&mut self) {
-        if self.view_mode == ViewMode::VirtualArchive
-            && let Some(arch) = self.current_archive.clone()
-            && let Some(first) = self.selected_archive_files.first()
-        {
-            self.dialog_state = DialogState::new_rename(arch, first.clone());
-            return;
+        if self.view_mode == ViewMode::VirtualArchive {
+            if let Some(info) = &self.archive_info
+                && info.is_locked
+            {
+                self.dialog_state = DialogState::Message {
+                    title: "Archive Locked".to_string(),
+                    message: "Cannot rename files: this archive is locked against modifications."
+                        .to_string(),
+                    is_error: true,
+                };
+                return;
+            }
+            if let Some(arch) = self.current_archive.clone()
+                && let Some(first) = self.selected_archive_files.first()
+            {
+                self.dialog_state = DialogState::new_rename(arch, first.clone());
+                return;
+            }
         }
         self.dialog_state = DialogState::Message {
             title: "Rename".to_string(),
@@ -1643,6 +1668,17 @@ impl LinrarApp {
 
     fn trigger_delete(&mut self) {
         if self.view_mode == ViewMode::VirtualArchive {
+            if let Some(info) = &self.archive_info
+                && info.is_locked
+            {
+                self.dialog_state = DialogState::Message {
+                    title: "Archive Locked".to_string(),
+                    message: "Cannot delete files: this archive is locked against modifications."
+                        .to_string(),
+                    is_error: true,
+                };
+                return;
+            }
             if let Some(arch) = self.current_archive.clone()
                 && !self.selected_archive_files.is_empty()
             {
@@ -1984,7 +2020,7 @@ impl LinrarApp {
                                         RarEngine::extract(archive_path, &dest, None, pwd)
                                     }
                                     ArchiveType::Zip => {
-                                        ZipEngine::extract(archive_path, &dest, None)
+                                        ZipEngine::extract(archive_path, &dest, None, pwd)
                                     }
                                     ArchiveType::TarGz => TarEngine::extract(
                                         archive_path,

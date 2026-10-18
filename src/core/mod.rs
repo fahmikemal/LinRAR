@@ -11,4 +11,5 @@ pub mod scanner;
 pub mod tar_engine;
 #[cfg(test)]
 mod tests;
+pub mod volume;
 pub mod zip_engine;
