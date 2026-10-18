@@ -5,7 +5,7 @@
 <p align="center">
   <strong>Modern, High-Performance Universal Archive Manager for Linux</strong>
   <br>
-  <em>Built in 100% Pure Safe Rust 2024 with Native Wayland/X11 GUI & Powerful CLI</em>
+  <em>Built in 100% Pure Safe Rust with Native Wayland/X11 GUI & Powerful CLI</em>
 </p>
 
 <p align="center">
