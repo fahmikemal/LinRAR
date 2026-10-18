@@ -60,7 +60,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   security-audit:
-    name: Security Vulnerability Audit
+    name: RustSec Dependency Audit
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -70,6 +70,33 @@ jobs:
 
       - name: Audit Rust Dependencies
         uses: actions-rust-lang/audit@v1
+
+  gitleaks:
+    name: Gitleaks Secret Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  opengrep:
+    name: Opengrep SAST Code Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install & Run Opengrep
+        run: |
+          sudo wget -q https://github.com/opengrep/opengrep/releases/download/v1.31.0/opengrep_manylinux_x86 -O /usr/local/bin/opengrep
+          sudo chmod +x /usr/local/bin/opengrep
+          opengrep scan --config auto --error
 
   test:
     name: Unit & Integration Tests
