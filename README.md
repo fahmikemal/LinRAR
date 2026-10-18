@@ -2,8 +2,6 @@
   <img src="assets/linrar_banner_dark.png" alt="LinRAR Project Logo" width="566">
 </p>
 
-# LinRAR
-
 <p align="center">
   <strong>Modern, High-Performance Cleanroom WinRAR Reconstruction for Linux</strong>
   <br>
