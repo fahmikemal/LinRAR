@@ -49,6 +49,7 @@ pub struct LinrarApp {
     pub selected_archive_files: Vec<String>,
 
     pub dialog_state: DialogState,
+    pub dialog_frames_open: u32,
     #[allow(dead_code)]
     pub icons: Option<IconManager>,
     pub status_message: String,
@@ -72,6 +73,7 @@ impl LinrarApp {
             archive_subpath: String::new(),
             selected_archive_files: Vec::new(),
             dialog_state: DialogState::None,
+            dialog_frames_open: 0,
             icons,
             status_message: "Ready".to_string(),
             show_comment_pane: true,
@@ -1490,10 +1492,43 @@ impl LinrarApp {
     }
 
     fn render_dialogs(&mut self, ctx: &egui::Context) {
+        if matches!(self.dialog_state, DialogState::None) {
+            self.dialog_frames_open = 0;
+            return;
+        }
+
+        self.dialog_frames_open = self.dialog_frames_open.saturating_add(1);
+
         let mut close_dialog = false;
+        let any_popup_open = egui::Popup::is_any_open(ctx);
+
+        // 1. ESC key closes the dialog
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            && !any_popup_open
+        {
+            close_dialog = true;
+        }
+
+        // 2. Render dimmed modal backdrop behind the dialog
+        let screen_rect = ctx.viewport_rect();
+        let backdrop_color = if self.theme_mode == ThemeMode::Dark {
+            Color32::from_black_alpha(120)
+        } else {
+            Color32::from_black_alpha(75)
+        };
+        egui::Area::new(egui::Id::unique("modal_backdrop"))
+            .order(egui::Order::Middle)
+            .fixed_pos(screen_rect.min)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
+            });
+
         let center = ctx.viewport_rect().center();
         let accent_color = self.accent_color();
         let is_light_theme = self.theme_mode == ThemeMode::Light;
+        let mut dialog_window_rect: Option<egui::Rect> = None;
+        let initial_discriminant = std::mem::discriminant(&self.dialog_state);
 
         match &mut self.dialog_state {
             DialogState::None => {}
@@ -1510,7 +1545,10 @@ impl LinrarApp {
                 is_locked,
                 comment,
             } => {
-                egui::Window::new("Add to Archive")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Add to Archive")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -1632,6 +1670,12 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
             }
 
             DialogState::ExtractArchive {
@@ -1640,7 +1684,10 @@ impl LinrarApp {
                 password,
                 overwrite,
             } => {
-                egui::Window::new("Extraction Path and Options")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Extraction Path and Options")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -1712,22 +1759,25 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
             }
 
             DialogState::ArchiveInfo(info) => {
                 let mut is_open = true;
-                egui::Window::new("Archive Information")
+                let win_resp = egui::Window::new("Archive Information")
                     .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
                     .collapsible(false)
                     .default_width(380.0)
                     .show(ctx, |ui| {
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            close_dialog = true;
-                        }
-
                         egui::Grid::new("info_grid").striped(true).show(ui, |ui| {
                             ui.label("Archive Name:");
                             ui.strong(info.path.file_name().unwrap_or_default().to_string_lossy());
@@ -1786,7 +1836,9 @@ impl LinrarApp {
                             close_dialog = true;
                         }
                     });
-
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
                 if !is_open {
                     close_dialog = true;
                 }
@@ -1794,7 +1846,10 @@ impl LinrarApp {
 
             DialogState::Benchmark { runner } => {
                 ctx.request_repaint();
-                egui::Window::new("Benchmark and Hardware Test")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Benchmark and Hardware Test")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -1836,17 +1891,31 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    runner.stop();
+                    close_dialog = true;
+                }
             }
 
             DialogState::TrialReminder => {
-                egui::Window::new("LinRAR Open Source License")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("LinRAR Open Source License")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
                     .collapsible(false)
                     .default_width(420.0)
                     .show(ctx, |ui| {
-                        ui.label(RichText::new("LinRAR - MIT License").heading().color(accent_color));
+                        ui.label(
+                            RichText::new("LinRAR - MIT License")
+                                .heading()
+                                .color(accent_color),
+                        );
                         ui.separator();
                         ui.label(
                             "LinRAR is free and open-source software under the MIT License.\n\n\
@@ -1854,7 +1923,7 @@ impl LinrarApp {
                             Permission is hereby granted, free of charge, to any person obtaining a copy \
                             of this software and associated documentation files, to deal in the Software \
                             without restriction, including without limitation the rights to use, copy, modify, \
-                            merge, publish, distribute, sublicense, and/or sell copies of the Software."
+                            merge, publish, distribute, sublicense, and/or sell copies of the Software.",
                         );
                         ui.separator();
                         ui.horizontal(|ui| {
@@ -1863,10 +1932,19 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
             }
 
             DialogState::About => {
-                egui::Window::new("About LinRAR")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("About LinRAR")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -1900,10 +1978,19 @@ impl LinrarApp {
                             close_dialog = true;
                         }
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
             }
 
             DialogState::ScanResults(res) => {
-                egui::Window::new("Scan Archive for Viruses & Threats")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Scan Archive for Viruses & Threats")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(true)
@@ -1959,6 +2046,12 @@ impl LinrarApp {
                             close_dialog = true;
                         }
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
             }
 
             DialogState::FindFiles {
@@ -1972,7 +2065,10 @@ impl LinrarApp {
                 let mut pick_dir = false;
                 let mut open_item = None;
 
-                egui::Window::new("Find Files")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Find Files")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(true)
@@ -2035,6 +2131,12 @@ impl LinrarApp {
                             });
                         }
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
 
                 if pick_dir && let Some(folder) = rfd::FileDialog::new().pick_folder() {
                     *search_dir = folder;
@@ -2073,7 +2175,10 @@ impl LinrarApp {
                 let src_clone = source_path.clone();
                 let fmt_clone = *target_format;
 
-                egui::Window::new("Convert Archives")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Convert Archives")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -2112,6 +2217,12 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
 
                 if do_convert {
                     let opts = AddOptions {
@@ -2153,7 +2264,10 @@ impl LinrarApp {
                 let mut do_repair = false;
                 let arch_clone = archive_path.clone();
 
-                egui::Window::new("Repair Damaged Archive")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Repair Damaged Archive")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(true)
@@ -2164,10 +2278,17 @@ impl LinrarApp {
 
                         if let Some(res) = result {
                             if res.success {
-                                ui.label(RichText::new("[OK] Repair completed!").strong().color(Color32::GREEN));
+                                ui.label(
+                                    RichText::new("[OK] Repair completed!")
+                                        .strong()
+                                        .color(Color32::GREEN),
+                                );
                                 ui.label(format!("Fixed archive: {}", res.fixed_path.display()));
                             } else {
-                                ui.label(RichText::new("[!] Repair finished with warnings").color(Color32::YELLOW));
+                                ui.label(
+                                    RichText::new("[!] Repair finished with warnings")
+                                        .color(Color32::YELLOW),
+                                );
                             }
                             ui.separator();
                             ui.label("Repair Log:");
@@ -2181,14 +2302,21 @@ impl LinrarApp {
                         ui.separator();
                         ui.horizontal(|ui| {
                             if result.is_none()
-                                && ui.button(RichText::new("Start Repair").strong()).clicked() {
-                                    do_repair = true;
-                                }
+                                && ui.button(RichText::new("Start Repair").strong()).clicked()
+                            {
+                                do_repair = true;
+                            }
                             if ui.button("Close").clicked() {
                                 close_dialog = true;
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
 
                 if do_repair {
                     match ArchiveRepair::repair(&arch_clone) {
@@ -2217,7 +2345,10 @@ impl LinrarApp {
                 let arch_clone = archive_path.clone();
                 let fmt_val = *format;
 
-                egui::Window::new("Archive Contents Report")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Archive Contents Report")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(true)
@@ -2251,6 +2382,12 @@ impl LinrarApp {
                             ui.monospace(content.as_str());
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
 
                 if recompute {
                     *content = ArchiveReport::generate(&arch_clone, *format).unwrap_or_default();
@@ -2280,7 +2417,10 @@ impl LinrarApp {
                 let arch_clone = archive_path.clone();
                 let pct_clone = percent.clone();
 
-                egui::Window::new("Protect Archive (Recovery Record)")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Protect Archive (Recovery Record)")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -2315,6 +2455,12 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
 
                 if do_protect {
                     match RarEngine::protect(&arch_clone, &pct_clone) {
@@ -2352,7 +2498,10 @@ impl LinrarApp {
                 let old_clone = old_name.clone();
                 let new_clone = new_name.clone();
 
-                egui::Window::new("Rename Archived File")
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Rename Archived File")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -2376,6 +2525,12 @@ impl LinrarApp {
                             }
                         });
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
 
                 if do_rename {
                     match RarEngine::rename(&arch_clone, &old_clone, &new_clone) {
@@ -2406,7 +2561,10 @@ impl LinrarApp {
                 } else {
                     Color32::LIGHT_GRAY
                 };
-                egui::Window::new(title.as_str())
+                let mut is_open = true;
+                let win_resp = egui::Window::new(title.as_str())
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
@@ -2419,11 +2577,37 @@ impl LinrarApp {
                             close_dialog = true;
                         }
                     });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
             }
         }
 
+        // 3. Click outside the dialog window closes the dialog
+        if let Some(rect) = dialog_window_rect
+            && self.dialog_frames_open > 1
+            && ctx.input(|i| i.pointer.primary_clicked())
+            && !any_popup_open
+            && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
+            && !rect.contains(pos)
+        {
+            close_dialog = true;
+        }
+
+        let final_discriminant = std::mem::discriminant(&self.dialog_state);
+        if initial_discriminant != final_discriminant {
+            self.dialog_frames_open = 0;
+        }
+
         if close_dialog {
+            if let DialogState::Benchmark { runner } = &mut self.dialog_state {
+                runner.stop();
+            }
             self.dialog_state = DialogState::None;
+            self.dialog_frames_open = 0;
         }
     }
 }
