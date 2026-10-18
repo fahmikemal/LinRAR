@@ -111,18 +111,17 @@ jobs:
           cp LICENSE "$DEB_DIR/usr/share/doc/linrar/copyright"
           cp README.md "$DEB_DIR/usr/share/doc/linrar/"
 
-          cat <<EOF > "$DEB_DIR/DEBIAN/control"
-Package: linrar
-Version: ${VERSION_NUM}
-Section: utils
-Priority: optional
-Architecture: amd64
-Maintainer: Fahmi Kemal <fahmi@kemal.id>
-Homepage: https://github.com/fahmikemal/LinRAR
-Description: Modern universal archive manager for Linux in pure Rust
- LinRAR is a fast, safe, and intuitive universal archive manager for Linux
- supporting RAR, ZIP, TAR, 7z formats with native Wayland/X11 GUI and powerful CLI.
-EOF
+          {
+            echo "Package: linrar"
+            echo "Version: ${VERSION_NUM}"
+            echo "Section: utils"
+            echo "Priority: optional"
+            echo "Architecture: amd64"
+            echo "Maintainer: Fahmi Kemal <fahmi@kemal.id>"
+            echo "Homepage: https://github.com/fahmikemal/LinRAR"
+            echo "Description: Modern universal archive manager for Linux in pure Rust"
+            echo " LinRAR is a fast, safe, and intuitive universal archive manager for Linux supporting RAR, ZIP, TAR, 7z formats with native Wayland/X11 GUI and powerful CLI."
+          } > "$DEB_DIR/DEBIAN/control"
 
           dpkg-deb --build --root-owner-group "$DEB_DIR" "linrar_${VERSION_NUM}_amd64.deb"
           sha256sum "linrar_${VERSION_NUM}_amd64.deb" > "linrar_${VERSION_NUM}_amd64.deb.sha256"
