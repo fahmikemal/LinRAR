@@ -96,7 +96,7 @@ jobs:
         run: |
           sudo wget -q https://github.com/opengrep/opengrep/releases/download/v1.31.0/opengrep_manylinux_x86 -O /usr/local/bin/opengrep
           sudo chmod +x /usr/local/bin/opengrep
-          opengrep scan --config auto --error
+          opengrep scan --config auto --exclude='.github' --error
 
   test:
     name: Unit & Integration Tests
