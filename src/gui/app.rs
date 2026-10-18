@@ -1403,7 +1403,7 @@ impl LinrarApp {
                     .default_width(380.0)
                     .show(ctx, |ui| {
                         if let Some(tex) = self.icons.as_ref().and_then(|i| i.banner_icon.as_ref()) {
-                            ui.add(egui::Image::from_texture((tex.id(), egui::vec2(360.0, 75.0))));
+                            ui.add(egui::Image::from_texture((tex.id(), egui::vec2(360.0, 156.0))));
                         } else if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
                             ui.add(egui::Image::from_texture((tex.id(), egui::vec2(64.0, 64.0))));
                         }
