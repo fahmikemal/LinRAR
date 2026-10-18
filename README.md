@@ -42,7 +42,7 @@ LinRAR features full format interoperability (RAR4, RAR5, ZIP, TAR.GZ, TAR.BZ2, 
 ### 2. Dual Themes (Dark & Light)
 - **Dark Theme**: Default sleek cyberpunk dark palette designed for low-light environments.
 - **Light Theme**: Crisp, high-contrast light theme engineered for daytime readability and accessibility.
-- **Instant Toggle**: Switch themes in real-time via the `Theme` menu or the toolbar quick-toggle button without restarting the application.
+- **Instant Switching**: Switch themes in real-time via the `Theme` menu (`Dark Theme` / `Light Theme`) without restarting the application.
 
 ### 3. Integrated Security & Virus Scanner
 - **Dual Engine Architecture**:

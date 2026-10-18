@@ -489,19 +489,6 @@ impl eframe::App for LinrarApp {
                 if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.delete_icon.as_ref()), "Delete", false).clicked() {
                     self.trigger_delete();
                 }
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let toggle_label = match self.theme_mode {
-                        ThemeMode::Dark => "Theme: Light",
-                        ThemeMode::Light => "Theme: Dark",
-                    };
-                    if ui.button(RichText::new(toggle_label).size(12.0)).clicked() {
-                        self.theme_mode = match self.theme_mode {
-                            ThemeMode::Dark => ThemeMode::Light,
-                            ThemeMode::Light => ThemeMode::Dark,
-                        };
-                    }
-                });
             });
             ui.add_space(4.0);
         });
