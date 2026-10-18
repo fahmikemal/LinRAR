@@ -342,6 +342,34 @@ impl eframe::App for LinrarApp {
             self.trigger_delete();
         }
 
+        // Top Brand Header (Logo and Wordmark above menu bar)
+        egui::Panel::top("brand_header").show(ui, |ui| {
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
+                    ui.add(egui::Image::from_texture((
+                        tex.id(),
+                        egui::vec2(18.0, 18.0),
+                    )));
+                }
+                let brand_text = match &self.current_archive {
+                    Some(arch) => format!(
+                        "LinRAR - {}",
+                        arch.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                    None => "LinRAR".to_string(),
+                };
+                ui.label(
+                    RichText::new(brand_text)
+                        .strong()
+                        .size(13.0)
+                        .color(self.accent_color()),
+                );
+            });
+            ui.add_space(2.0);
+        });
+
         // Top Menu Bar
         egui::Panel::top("top_menu_bar").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -477,28 +505,6 @@ impl eframe::App for LinrarApp {
                     if ui.button("About LinRAR").clicked() {
                         ui.close();
                         self.dialog_state = DialogState::About;
-                    }
-                });
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let brand_text = match &self.current_archive {
-                        Some(arch) => format!(
-                            "{} - LinRAR",
-                            arch.file_name().unwrap_or_default().to_string_lossy()
-                        ),
-                        None => "LinRAR".to_string(),
-                    };
-                    ui.label(
-                        RichText::new(brand_text)
-                            .strong()
-                            .size(12.0)
-                            .color(self.accent_color()),
-                    );
-                    if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
-                        ui.add(egui::Image::from_texture((
-                            tex.id(),
-                            egui::vec2(16.0, 16.0),
-                        )));
                     }
                 });
             });
