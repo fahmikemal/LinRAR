@@ -63,7 +63,8 @@ jobs:
             libgtk-3-dev \
             libxkbcommon-dev \
             libbz2-dev \
-            liblzma-dev
+            liblzma-dev \
+            rpm
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -128,6 +129,90 @@ jobs:
           dpkg-deb --build --root-owner-group "$DEB_DIR" "linrar_${VERSION_NUM}_amd64.deb"
           sha256sum "linrar_${VERSION_NUM}_amd64.deb" > "linrar_${VERSION_NUM}_amd64.deb.sha256"
 
+      - name: Build AppImage (.AppImage)
+        env:
+          RAW_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION_NUM="${RAW_VERSION#v}"
+          APP_DIR="AppDir"
+          mkdir -p "$APP_DIR/usr/bin"
+          mkdir -p "$APP_DIR/usr/share/applications"
+          mkdir -p "$APP_DIR/usr/share/icons/hicolor"
+
+          cp target/release/linrar "$APP_DIR/usr/bin/linrar"
+          chmod 755 "$APP_DIR/usr/bin/linrar"
+          cp linrar.desktop "$APP_DIR/linrar.desktop"
+          cp linrar.desktop "$APP_DIR/usr/share/applications/linrar.desktop"
+          cp assets/icons/linrar.png "$APP_DIR/linrar.png"
+          cp -r assets/icons/hicolor/* "$APP_DIR/usr/share/icons/hicolor/"
+
+          {
+            echo '#!/bin/sh'
+            echo 'HERE="$(dirname "$(readlink -f "${0}")")"'
+            echo 'export PATH="${HERE}/usr/bin:${PATH}"'
+            echo 'export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}"'
+            echo 'exec "${HERE}/usr/bin/linrar" "$@"'
+          } > "$APP_DIR/AppRun"
+          chmod +x "$APP_DIR/AppRun"
+
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract >/dev/null 2>&1
+
+          APPIMAGE_NAME="LinRAR-${VERSION_NUM}-x86_64.AppImage"
+          ARCH=x86_64 ./squashfs-root/AppRun "$APP_DIR" "$APPIMAGE_NAME"
+          sha256sum "$APPIMAGE_NAME" > "${APPIMAGE_NAME}.sha256"
+          rm -rf "$APP_DIR" squashfs-root appimagetool
+
+      - name: Build RPM Package (.rpm)
+        env:
+          RAW_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION_NUM="${RAW_VERSION#v}"
+          RPM_ROOT="$PWD/rpmbuild"
+          mkdir -p "$RPM_ROOT"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          BUILDROOT="$RPM_ROOT/BUILDROOT/linrar-${VERSION_NUM}-1.x86_64"
+          mkdir -p "$BUILDROOT/usr/bin"
+          mkdir -p "$BUILDROOT/usr/share/applications"
+          mkdir -p "$BUILDROOT/usr/share/icons/hicolor"
+          mkdir -p "$BUILDROOT/usr/share/doc/linrar"
+
+          cp target/release/linrar "$BUILDROOT/usr/bin/linrar"
+          chmod 755 "$BUILDROOT/usr/bin/linrar"
+          cp linrar.desktop "$BUILDROOT/usr/share/applications/"
+          cp -r assets/icons/hicolor/* "$BUILDROOT/usr/share/icons/hicolor/"
+          cp LICENSE "$BUILDROOT/usr/share/doc/linrar/copyright"
+          cp README.md "$BUILDROOT/usr/share/doc/linrar/"
+
+          {
+            echo "Name: linrar"
+            echo "Version: ${VERSION_NUM}"
+            echo "Release: 1"
+            echo "Summary: Modern universal archive manager for Linux in pure Rust"
+            echo "License: MIT"
+            echo "URL: https://github.com/fahmikemal/LinRAR"
+            echo "AutoReqProv: no"
+            echo ""
+            echo "%description"
+            echo "LinRAR is a fast, safe, and intuitive universal archive manager for Linux supporting RAR, ZIP, TAR, 7z formats with native Wayland/X11 GUI and powerful CLI."
+            echo ""
+            echo "%files"
+            echo "/usr/bin/linrar"
+            echo "/usr/share/applications/linrar.desktop"
+            echo "/usr/share/icons/hicolor/*/apps/linrar.png"
+            echo "/usr/share/doc/linrar/*"
+            echo ""
+            echo "%changelog"
+            echo "* Sun Oct 18 2026 Fahmi Kemal <fahmi@kemal.id> - ${VERSION_NUM}-1"
+            echo "- Automated release build"
+          } > "$RPM_ROOT/SPECS/linrar.spec"
+
+          rpmbuild --define "_topdir $RPM_ROOT" -bb "$RPM_ROOT/SPECS/linrar.spec"
+          RPM_FILE=$(find "$RPM_ROOT/RPMS" -name "*.rpm" -exec basename {} \;)
+          cp "$RPM_ROOT/RPMS"/*/"$RPM_FILE" ./
+          sha256sum "$RPM_FILE" > "${RPM_FILE}.sha256"
+          rm -rf "$RPM_ROOT"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -137,6 +222,10 @@ jobs:
             linrar-*.tar.gz.sha256
             linrar_*.deb
             linrar_*.deb.sha256
+            *.rpm
+            *.rpm.sha256
+            *.AppImage
+            *.AppImage.sha256
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

@@ -54,26 +54,41 @@ LinRAR features full format interoperability (RAR4, RAR5, ZIP, TAR.GZ, TAR.BZ2, 
 
 ## Installation
 
-### Prerequisites
-- Linux (Ubuntu, Debian, Fedora, Arch, or openSUSE)
-- Rust toolchain (`cargo`, `rustc` 1.80+)
-- Optional: ClamAV (`sudo apt install clamav clamav-daemon`) for deep malware scanning.
+LinRAR provides prebuilt packages for all major Linux distributions on the [**Releases**](https://github.com/fahmikemal/LinRAR/releases) page.
 
-### One-Click Installer
-Clone the repository and run the automated installer:
+### 1. Universal AppImage (All Linux Distributions)
+Works on **Arch Linux, Fedora, Debian, Ubuntu, openSUSE, Void, Alpine, and Manjaro** with zero setup:
+```bash
+chmod +x LinRAR-*.AppImage
+./LinRAR-*.AppImage
+```
+
+### 2. Debian / Ubuntu / Linux Mint / Pop!_OS (`.deb`)
+```bash
+sudo dpkg -i linrar_*_amd64.deb
+```
+
+### 3. Fedora / RHEL / CentOS / openSUSE (`.rpm`)
+```bash
+sudo dnf install ./linrar-*.rpm
+# or for openSUSE:
+sudo zypper install ./linrar-*.rpm
+```
+
+### 4. Portable Standalone Bundle (`.tar.gz`)
+Works on any Linux distribution with a simple one-click user installer:
+```bash
+tar -xzf linrar-*.tar.gz
+cd linrar-*
+./install.sh
+```
+
+### 5. Build from Source
 ```bash
 git clone https://github.com/fahmikemal/LinRAR.git
 cd LinRAR
 chmod +x install.sh
 ./install.sh
-```
-
-The installer builds the release binary, installs it to `~/.local/bin/linrar`, installs high-resolution icons into `~/.local/share/icons/hicolor/`, and registers the desktop launcher in your application menu (`LinRAR Archive Manager`).
-
-### Manual Build
-```bash
-cargo build --release
-sudo cp target/release/linrar /usr/local/bin/
 ```
 
 ---
