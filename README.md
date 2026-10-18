@@ -20,7 +20,7 @@
 
 ## Overview
 
-**LinRAR** is an independent, high-performance, open-source universal archive manager designed specifically for Linux. Built from the ground up in pure Rust 2024, LinRAR provides a fast, secure, and native archiving experience for both desktop users and power users through an intuitive **GUI** (powered by `eframe` / `egui`) and an ergonomic, scriptable **CLI**.
+**LinRAR** is an independent, high-performance, open-source universal archive manager designed specifically for Linux. Built from the ground up in pure Rust, LinRAR provides a fast, secure, and native archiving experience for both desktop users and power users through an intuitive **GUI** (powered by `eframe` / `egui`) and an ergonomic, scriptable **CLI**.
 
 LinRAR features full format interoperability (RAR4, RAR5, ZIP, TAR.GZ, TAR.BZ2, 7z), built-in recovery records, archive locking, damaged archive repair, multi-threaded hardware benchmarking, built-in heuristic threat scanning with optional ClamAV daemon integration, and custom theme modes (Dark & Light).
 
