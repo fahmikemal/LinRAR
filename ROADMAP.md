@@ -33,7 +33,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **GUI & UX** | Unified CSD Titlebar | Vector-drawn controls, borderless resize | **Full** | `app.rs` (`custom_title_bar`) |
 | **GUI & UX** | Quick Look / In-Archive File Preview | Preview teks/gambar langsung via default system app | **Full** | `app.rs` (`trigger_view_file`, double-click) |
 | **GUI & UX** | Drag-and-Drop (DND) File Manager | Drag file/arsip dari Dolphin/Nautilus dengan visual drop-overlay & auto-open/add | **Full** | `app.rs` (`handle_dropped_files`, `render_dnd_overlay`) |
-| **GUI & UX** | Smart Extraction ("Extract Here - Smart") | Deteksi single-folder vs loose files | **Planned** | Roadmap Fase 2 |
+| **GUI & UX** | Smart Extraction ("Extract Here - Smart") | Deteksi single-folder vs loose files | **Full** | `smart_extract.rs` (`SmartExtractor`) |
 | **GUI & UX** | Code Page / Encoding Selector | Anti-mojibake (Shift-JIS, CP949, GBK) | **Planned** | Roadmap Fase 2 |
 | **Sistem** | Unix Metadata (Permissions, mtime) | Mode octal `-rwxr-xr-x`, timestamp | **Full** | `zip_engine.rs`, `tar_engine.rs` |
 | **Sistem** | Hardware Benchmark Multithreaded | Rayon hashing & integer MIPS test | **Full** | `benchmark.rs` (`BenchmarkRunner`) |
@@ -88,3 +88,11 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
   - Membuka file arsip secara otomatis jika satu file arsip didrop ke LinRAR.
   - Menampilkan dialog "Add to Archive" dengan file yang didrop jika dilepas ke arsip yang sedang terbuka atau browser lokal.
   - Melindungi arsip yang terkunci (`is_locked`) agar tidak dapat disusupi file drop tanpa izin.
+
+### H. Smart Extraction ("Ekstraksi Pintar" ala Bandizip / PeaZip)
+- **Penyempurnaan**:
+  - Engine `SmartExtractor` di `src/core/smart_extract.rs` yang secara cerdas mendeteksi hierarki dan struktur isi arsip sebelum diekstrak.
+  - **Mencegah Duplikasi Folder**: Jika seluruh isi arsip sudah berada di dalam satu direktori *root*, arsip diekstrak langsung ke folder tujuan tanpa membungkusnya ke subdirektori tambahan (`target/folder/...` bukan `target/nama_arsip/folder/...`).
+  - **Mencegah Archive-Bomb**: Jika arsip berisi berkas-berkas lepas (*loose files*) di root, arsip secara otomatis diekstrak ke dalam subdirektori baru dengan nama arsip (`target/nama_arsip/...`), menjaga kerapian folder tujuan atau Desktop pengguna.
+  - **Pembersihan Nama Ekstensi Majemuk**: Penamaan subfolder cerdas membersihkan ekstensi majemuk seperti `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.part01.rar`, `.zip.001`.
+  - **Dukungan Penuh GUI & CLI**: Checkbox "Ekstraksi Pintar" diaktifkan secara default pada dialog ekstraksi GUI, serta flag `--smart` pada perintah CLI (`linrar x --smart <archive> [dest]`).

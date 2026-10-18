@@ -8,6 +8,7 @@ pub mod repair;
 pub mod report;
 
 pub mod scanner;
+pub mod smart_extract;
 pub mod tar_engine;
 #[cfg(test)]
 mod tests;

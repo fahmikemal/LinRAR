@@ -97,10 +97,11 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
         Commands::Extract {
             archive,
             destination,
+            smart,
             files,
         } => {
             let arch_path = PathBuf::from(&archive);
-            let dest_path = destination
+            let base_dest = destination
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
             let selected = if files.is_empty() {
@@ -109,6 +110,46 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 Some(files.as_slice())
             };
             let arch_type = detect_archive_type(&arch_path);
+
+            let dest_path = if smart {
+                let entries_res = match arch_type {
+                    ArchiveType::Zip => ZipEngine::read_entries(&arch_path).map(|(_, e)| e),
+                    ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
+                        TarEngine::read_entries(&arch_path, arch_type).map(|(_, e)| e)
+                    }
+                    _ => RarEngine::read_entries(&arch_path).map(|(_, e)| e),
+                };
+                match entries_res {
+                    Ok(entries) => {
+                        let final_target =
+                            crate::core::smart_extract::SmartExtractor::determine_destination(
+                                &arch_path, &base_dest, &entries,
+                            );
+                        let (has_single, root) =
+                            crate::core::smart_extract::SmartExtractor::has_single_root_folder(
+                                &entries,
+                            );
+                        if has_single {
+                            println!(
+                                "Smart Extraction: detected single root folder '{}'; extracting directly to '{}'",
+                                root.unwrap_or_default(),
+                                base_dest.display()
+                            );
+                        } else {
+                            println!(
+                                "Smart Extraction: loose files detected; creating container folder '{}'",
+                                final_target.display()
+                            );
+                        }
+                        final_target
+                    }
+                    Err(_) => base_dest,
+                }
+            } else {
+                base_dest
+            };
+
+            let _ = std::fs::create_dir_all(&dest_path);
 
             println!(
                 "LinRAR 0.1.0 - Extracting archive: {} to {}",

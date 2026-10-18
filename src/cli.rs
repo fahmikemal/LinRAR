@@ -57,6 +57,11 @@ pub enum Commands {
     Extract {
         archive: String,
         destination: Option<String>,
+        #[arg(
+            long = "smart",
+            help = "Smart extraction: auto-folder loose files, unpack single-root directly"
+        )]
+        smart: bool,
         files: Vec<String>,
     },
 

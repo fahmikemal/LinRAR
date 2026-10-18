@@ -8,10 +8,11 @@ use crate::core::finder::ArchiveFinder;
 use crate::core::rar_engine::RarEngine;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::VirusScanner;
+use crate::core::smart_extract::SmartExtractor;
 use crate::core::tar_engine::TarEngine;
 use crate::core::volume::VolumeManager;
 use crate::core::zip_engine::ZipEngine;
-use crate::types::{AddOptions, ArchiveType, CompressionLevel, format_unix_mode};
+use crate::types::{AddOptions, ArchiveEntry, ArchiveType, CompressionLevel, format_unix_mode};
 
 fn setup_test_files() -> (tempfile::TempDir, Vec<PathBuf>) {
     let tmp = tempfile::tempdir().unwrap();
@@ -389,4 +390,118 @@ fn test_zip_volume_splitting() {
     VolumeManager::join_files(&parts, &joined).unwrap();
     assert!(joined.exists());
     assert!(ZipEngine::test(&joined, None).unwrap());
+}
+
+#[test]
+fn test_smart_extractor_stem_cleaner() {
+    assert_eq!(
+        SmartExtractor::get_clean_archive_stem("myproject.tar.gz"),
+        "myproject"
+    );
+    assert_eq!(
+        SmartExtractor::get_clean_archive_stem("backup.tar.bz2"),
+        "backup"
+    );
+    assert_eq!(
+        SmartExtractor::get_clean_archive_stem("photos.zip"),
+        "photos"
+    );
+    assert_eq!(
+        SmartExtractor::get_clean_archive_stem("large_data.part01.rar"),
+        "large_data"
+    );
+    assert_eq!(
+        SmartExtractor::get_clean_archive_stem("multi.zip.001"),
+        "multi"
+    );
+}
+
+#[test]
+fn test_smart_extractor_single_root_vs_loose() {
+    // 1. Single root folder
+    let single_root_entries = vec![
+        ArchiveEntry {
+            name: "project".to_string(),
+            full_path: "project/".to_string(),
+            size: 0,
+            packed_size: 0,
+            modified: "-".to_string(),
+            crc: "00000000".to_string(),
+            is_dir: true,
+            encrypted: false,
+            attributes: "drwxr-xr-x".to_string(),
+        },
+        ArchiveEntry {
+            name: "main.rs".to_string(),
+            full_path: "project/src/main.rs".to_string(),
+            size: 100,
+            packed_size: 50,
+            modified: "-".to_string(),
+            crc: "12345678".to_string(),
+            is_dir: false,
+            encrypted: false,
+            attributes: "-rw-r--r--".to_string(),
+        },
+    ];
+    let (is_single, root) = SmartExtractor::has_single_root_folder(&single_root_entries);
+    assert!(is_single);
+    assert_eq!(root.as_deref(), Some("project"));
+
+    // 2. Loose files (archive-bomb scenario)
+    let loose_entries = vec![
+        ArchiveEntry {
+            name: "file1.txt".to_string(),
+            full_path: "file1.txt".to_string(),
+            size: 50,
+            packed_size: 20,
+            modified: "-".to_string(),
+            crc: "AAAAAAAA".to_string(),
+            is_dir: false,
+            encrypted: false,
+            attributes: "-rw-r--r--".to_string(),
+        },
+        ArchiveEntry {
+            name: "file2.txt".to_string(),
+            full_path: "file2.txt".to_string(),
+            size: 60,
+            packed_size: 25,
+            modified: "-".to_string(),
+            crc: "BBBBBBBB".to_string(),
+            is_dir: false,
+            encrypted: false,
+            attributes: "-rw-r--r--".to_string(),
+        },
+    ];
+    let (is_single_loose, _) = SmartExtractor::has_single_root_folder(&loose_entries);
+    assert!(!is_single_loose);
+
+    // 3. Destination resolution
+    let base_dest = std::path::Path::new("/home/user/Desktop");
+    let dest_single =
+        SmartExtractor::determine_destination("myproject.zip", base_dest, &single_root_entries);
+    assert_eq!(dest_single, base_dest);
+
+    let dest_loose =
+        SmartExtractor::determine_destination("loose_files.zip", base_dest, &loose_entries);
+    assert_eq!(dest_loose, base_dest.join("loose_files"));
+}
+
+#[test]
+fn test_smart_extractor_lifecycle() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file1 = tmp.path().join("doc1.txt");
+    let file2 = tmp.path().join("doc2.txt");
+    fs::write(&file1, "First loose file").unwrap();
+    fs::write(&file2, "Second loose file").unwrap();
+
+    let loose_zip = tmp.path().join("loose_payload.zip");
+    ZipEngine::create(&loose_zip, &[file1, file2], &AddOptions::default()).unwrap();
+
+    let extract_base = tmp.path().join("smart_output");
+    let final_dir = SmartExtractor::extract_smart(&loose_zip, &extract_base, None).unwrap();
+
+    // Verify it automatically created a container folder "loose_payload"
+    assert_eq!(final_dir, extract_base.join("loose_payload"));
+    assert!(final_dir.join("doc1.txt").exists());
+    assert!(final_dir.join("doc2.txt").exists());
 }

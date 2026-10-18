@@ -2231,6 +2231,7 @@ impl LinrarApp {
                 dest_path,
                 password,
                 overwrite,
+                smart_extract,
             } => {
                 let mut is_open = true;
                 let win_resp = egui::Window::new("Extraction Path and Options")
@@ -2240,7 +2241,7 @@ impl LinrarApp {
                     .default_pos(center)
                     .resizable(false)
                     .collapsible(false)
-                    .default_width(400.0)
+                    .default_width(420.0)
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Destination Path:");
@@ -2253,6 +2254,14 @@ impl LinrarApp {
                         });
 
                         ui.separator();
+                        ui.checkbox(smart_extract, "Ekstraksi Pintar (Smart Extraction)");
+                        ui.label(
+                            RichText::new(
+                                "Mencegah archive-bomb: buat folder baru jika file berserakan, atau ekstrak langsung jika sudah berfolder.",
+                            )
+                            .weak()
+                            .small(),
+                        );
                         ui.checkbox(overwrite, "Overwrite existing files");
 
                         ui.horizontal(|ui| {
@@ -2269,7 +2278,36 @@ impl LinrarApp {
                                 } else {
                                     Some(password.as_str())
                                 };
-                                let dest = PathBuf::from(&dest_path);
+                                let base_dest = PathBuf::from(&dest_path);
+
+                                let dest = if *smart_extract {
+                                    let entries_res = match arch_type {
+                                        ArchiveType::Zip => {
+                                            ZipEngine::read_entries(&archive_path).map(|(_, e)| e)
+                                        }
+                                        ArchiveType::Tar
+                                        | ArchiveType::TarGz
+                                        | ArchiveType::TarBz2 => {
+                                            TarEngine::read_entries(&archive_path, arch_type)
+                                                .map(|(_, e)| e)
+                                        }
+                                        _ => RarEngine::read_entries(&archive_path).map(|(_, e)| e),
+                                    };
+                                    match entries_res {
+                                        Ok(entries) => {
+                                            crate::core::smart_extract::SmartExtractor::determine_destination(
+                                                &archive_path,
+                                                &base_dest,
+                                                &entries,
+                                            )
+                                        }
+                                        Err(_) => base_dest,
+                                    }
+                                } else {
+                                    base_dest
+                                };
+
+                                let _ = fs::create_dir_all(&dest);
 
                                 let _ = match arch_type {
                                     ArchiveType::Rar5 | ArchiveType::Rar4 => {

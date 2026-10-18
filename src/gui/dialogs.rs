@@ -25,6 +25,7 @@ pub enum DialogState {
         dest_path: String,
         password: String,
         overwrite: bool,
+        smart_extract: bool,
     },
     ArchiveInfo(ArchiveInfo),
     Benchmark {
@@ -111,6 +112,7 @@ impl DialogState {
             dest_path: parent,
             password: "".to_string(),
             overwrite: true,
+            smart_extract: true,
         }
     }
 
