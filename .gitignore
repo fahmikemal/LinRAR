@@ -1,0 +1,13 @@
+/target
+/extracted
+/rar
+/unrar
+*.rartemp
+*.tar.gz
+*.exe
+linrar
+payload.rar
+.codebase-memory/
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,154 @@
+use std::path::PathBuf;
+use clap::{Parser, Subcommand};
+use crate::types::CompressionLevel;
+
+#[derive(Parser, Debug, Clone)]
+#[command(name = "linrar", author = "LinRAR Team", version = "0.1.0", about = "Modern WinRAR Cleanroom Reconstruction for Linux in Pure Rust (MIT License)")]
+pub struct Cli {
+    #[arg(short = 'g', long = "gui", help = "Launch LinRAR graphical user interface")]
+    pub gui: bool,
+
+    #[arg(short = 'm', help = "Set compression level (0-store, 1-fastest, 2-fast, 3-normal, 4-good, 5-best)")]
+    pub compression_level: Option<u8>,
+
+    #[arg(short = 'p', help = "Set password")]
+    pub password: Option<String>,
+
+    #[arg(long = "hp", help = "Encrypt both file data and header")]
+    pub encrypt_header: Option<String>,
+
+    #[arg(short = 'v', help = "Create volumes (e.g. 10m, 100m)")]
+    pub volume_size: Option<String>,
+
+    #[arg(short = 's', help = "Create solid archive")]
+    pub solid: bool,
+
+    #[arg(short = 'k', help = "Lock archive")]
+    pub lock: bool,
+
+    #[arg(short = 'z', help = "Read archive comment from file")]
+    pub comment_file: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
+    #[arg(trailing_var_arg = true)]
+    pub files: Vec<String>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum Commands {
+    #[command(name = "a", about = "Add files to archive")]
+    Add {
+        archive: String,
+        files: Vec<String>,
+    },
+
+    #[command(name = "x", about = "Extract files with full paths")]
+    Extract {
+        archive: String,
+        destination: Option<String>,
+        files: Vec<String>,
+    },
+
+    #[command(name = "e", about = "Extract files to current directory (ignore paths)")]
+    ExtractFlat {
+        archive: String,
+        destination: Option<String>,
+        files: Vec<String>,
+    },
+
+    #[command(name = "l", about = "List contents of archive")]
+    List {
+        archive: String,
+    },
+
+    #[command(name = "t", about = "Test archive files integrity")]
+    Test {
+        archive: String,
+    },
+
+    #[command(name = "d", about = "Delete files from archive")]
+    Delete {
+        archive: String,
+        files: Vec<String>,
+    },
+
+    #[command(name = "b", about = "Run multithreaded hardware benchmark")]
+    Benchmark {
+        #[arg(short = 't', long = "time", default_value = "5", help = "Benchmark duration in seconds")]
+        time: u64,
+    },
+
+    #[command(name = "s", about = "Scan archive for viruses and security threats")]
+    Scan {
+        archive: String,
+    },
+
+    #[command(name = "r", about = "Repair damaged archive")]
+    Repair {
+        archive: String,
+    },
+
+    #[command(name = "find", alias = "f", about = "Find files in directory or inside archives")]
+    Find {
+        pattern: String,
+        path: Option<String>,
+        #[arg(short, long, help = "Search inside archives")]
+        archives: bool,
+    },
+
+    #[command(name = "convert", about = "Convert archive format (e.g. zip, rar, tar.gz)")]
+    Convert {
+        archive: String,
+        target_format: String,
+    },
+
+    #[command(name = "report", about = "Generate archive contents report (text or html)")]
+    Report {
+        archive: String,
+        #[arg(short, long, help = "Output report file path")]
+        output: Option<String>,
+        #[arg(long, default_value = "text", help = "Report format: text or html")]
+        format: String,
+    },
+
+    #[command(name = "rn", about = "Rename file inside archive")]
+    Rename {
+        archive: String,
+        old_name: String,
+        new_name: String,
+    },
+
+    #[command(name = "rr", about = "Add data recovery record to archive")]
+    Protect {
+        archive: String,
+        #[arg(default_value = "3%", help = "Recovery record percent (e.g. 3%, 5%, 10%)")]
+        percent: String,
+    },
+
+    #[command(name = "k", about = "Lock archive against further modifications")]
+    Lock {
+        archive: String,
+    },
+
+    #[command(name = "c", about = "Set or update archive comment")]
+    Comment {
+        archive: String,
+        #[arg(short, long, help = "Comment text or path to comment file")]
+        comment: Option<String>,
+    },
+}
+
+impl Cli {
+    pub fn get_compression_level(&self) -> CompressionLevel {
+        match self.compression_level.unwrap_or(3) {
+            0 => CompressionLevel::Store,
+            1 => CompressionLevel::Fastest,
+            2 => CompressionLevel::Fast,
+            4 => CompressionLevel::Good,
+            5 => CompressionLevel::Best,
+            _ => CompressionLevel::Normal,
+        }
+    }
+}

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=LinRAR
+Comment=Universal Linux Archive Manager (v0.1.0)
+GenericName=Archive Manager
+Exec=/home/tesseract/.local/bin/linrar %F
+Icon=linrar
+Terminal=false
+Type=Application
+Categories=Utility;Archiving;Compression;GTK;
+MimeType=application/x-rar;application/x-rar-compressed;application/zip;application/x-tar;application/x-7z-compressed;application/gzip;application/x-bzip2;application/x-xz;
+StartupNotify=true
+StartupWMClass=linrar

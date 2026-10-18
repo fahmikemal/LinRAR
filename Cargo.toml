@@ -1,0 +1,34 @@
+[package]
+name = "linrar"
+version = "0.1.0"
+edition = "2024"
+authors = ["LinRAR Team"]
+license = "MIT"
+description = "High-performance cleanroom WinRAR reconstruction for Linux in pure Rust"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+egui = "0.37"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui_extras = { version = "0.37", features = ["all_loaders"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+zip = "2.2"
+flate2 = "1.0"
+tar = "0.4"
+bzip2 = "0.6"
+chrono = "0.4"
+walkdir = "2.5"
+crc32fast = "1.4"
+rayon = "1.10"
+rfd = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3.16"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,11 @@
+pub mod detector;
+pub mod rar_parser;
+pub mod zip_engine;
+pub mod tar_engine;
+pub mod rar_engine;
+pub mod benchmark;
+pub mod scanner;
+pub mod repair;
+pub mod finder;
+pub mod converter;
+pub mod report;
