@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
 use rayon::prelude::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
 
 pub struct BenchmarkRunner {
     pub running: Arc<AtomicBool>,
@@ -83,5 +83,11 @@ impl BenchmarkRunner {
 
     pub fn elapsed_seconds(&self) -> f64 {
         self.start_time.elapsed().as_secs_f64()
+    }
+}
+
+impl Default for BenchmarkRunner {
+    fn default() -> Self {
+        Self::new()
     }
 }

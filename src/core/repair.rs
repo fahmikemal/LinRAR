@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use crate::core::detector::detect_archive_type;
 use crate::core::rar_engine::RarEngine;
 use crate::types::ArchiveType;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -49,7 +49,11 @@ impl ArchiveRepair {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        let log = if stderr.trim().is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) };
+        let log = if stderr.trim().is_empty() {
+            stdout
+        } else {
+            format!("{}\n{}", stdout, stderr)
+        };
         let success = fixed_path.exists() || log.contains("done") || log.contains("Done");
 
         Ok(RepairResult {
@@ -70,7 +74,12 @@ impl ArchiveRepair {
         let mut log = String::new();
         let mut success = false;
 
-        if Command::new("which").arg("zip").output().map(|o| o.status.success()).unwrap_or(false) {
+        if Command::new("which")
+            .arg("zip")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
             let output = Command::new("zip")
                 .arg("-FF")
                 .arg(path)

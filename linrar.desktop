@@ -2,7 +2,7 @@
 Name=LinRAR
 Comment=Universal Linux Archive Manager (v0.1.0)
 GenericName=Archive Manager
-Exec=/home/tesseract/.local/bin/linrar %F
+Exec=linrar %F
 Icon=linrar
 Terminal=false
 Type=Application

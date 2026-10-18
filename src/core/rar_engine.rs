@@ -15,10 +15,10 @@ impl RarEngine {
             PathBuf::from("/usr/bin/rar"),
         ];
 
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("bin/rar"));
-            }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(parent) = exe.parent()
+        {
+            candidates.push(parent.join("bin/rar"));
         }
 
         for p in candidates {
@@ -27,12 +27,12 @@ impl RarEngine {
             }
         }
 
-        if let Ok(output) = Command::new("which").arg("rar").output() {
-            if output.status.success() {
-                let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !s.is_empty() {
-                    return Some(PathBuf::from(s));
-                }
+        if let Ok(output) = Command::new("which").arg("rar").output()
+            && output.status.success()
+        {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(PathBuf::from(s));
             }
         }
 
@@ -45,10 +45,10 @@ impl RarEngine {
             PathBuf::from("/usr/bin/unrar"),
         ];
 
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("bin/unrar"));
-            }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(parent) = exe.parent()
+        {
+            candidates.push(parent.join("bin/unrar"));
         }
 
         for p in candidates {
@@ -57,24 +57,26 @@ impl RarEngine {
             }
         }
 
-        if let Ok(output) = Command::new("which").arg("unrar").output() {
-            if output.status.success() {
-                let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !s.is_empty() {
-                    return Some(PathBuf::from(s));
-                }
+        if let Ok(output) = Command::new("which").arg("unrar").output()
+            && output.status.success()
+        {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(PathBuf::from(s));
             }
         }
 
         Self::get_rar_bin()
     }
 
-    pub fn read_entries<P: AsRef<Path>>(path: P) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
+    pub fn read_entries<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         // Try pure Rust parser first
-        if let Ok((info, entries)) = RarParser::parse(&path) {
-            if !entries.is_empty() {
-                return Ok((info, entries));
-            }
+        if let Ok((info, entries)) = RarParser::parse(&path)
+            && !entries.is_empty()
+        {
+            return Ok((info, entries));
         }
 
         // Fallback to CLI listing if pure parser found empty (e.g. encrypted headers)
@@ -102,7 +104,9 @@ impl RarEngine {
         let is_locked = stdout.contains("Lock is present") || stdout.contains("Locked archive");
 
         for line in stdout.lines() {
-            if line.contains("-------------------------------------------------------------------------------") {
+            if line.contains(
+                "-------------------------------------------------------------------------------",
+            ) {
                 in_table = !in_table;
                 continue;
             }
@@ -111,7 +115,11 @@ impl RarEngine {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 6 {
                     let full_name = parts[0].to_string();
-                    let name = full_name.split('/').last().unwrap_or(&full_name).to_string();
+                    let name = full_name
+                        .split('/')
+                        .next_back()
+                        .unwrap_or(&full_name)
+                        .to_string();
                     let size = parts[1].parse::<u64>().unwrap_or(0);
                     let packed_size = parts[2].parse::<u64>().unwrap_or(0);
                     let is_dir = line.contains(" <DIR> ") || full_name.ends_with('/');
@@ -297,7 +305,11 @@ impl RarEngine {
         }
     }
 
-    pub fn rename<P: AsRef<Path>>(archive_path: P, old_name: &str, new_name: &str) -> Result<(), String> {
+    pub fn rename<P: AsRef<Path>>(
+        archive_path: P,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<(), String> {
         let bin = Self::get_rar_bin().ok_or("RAR binary not found")?;
         let mut cmd = Command::new(bin);
         cmd.arg("rn")
@@ -401,4 +413,3 @@ impl RarEngine {
         }
     }
 }
-

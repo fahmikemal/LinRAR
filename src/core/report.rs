@@ -14,19 +14,30 @@ pub enum ReportFormat {
     Html,
 }
 
-impl ReportFormat {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+impl std::str::FromStr for ReportFormat {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
             "html" | "htm" => ReportFormat::Html,
             _ => ReportFormat::Text,
-        }
+        })
+    }
+}
+
+impl ReportFormat {
+    pub fn parse_or_default(s: &str) -> Self {
+        s.parse().unwrap_or(ReportFormat::Text)
     }
 }
 
 pub struct ArchiveReport;
 
 impl ArchiveReport {
-    pub fn generate<P: AsRef<Path>>(archive_path: P, format: ReportFormat) -> Result<String, String> {
+    pub fn generate<P: AsRef<Path>>(
+        archive_path: P,
+        format: ReportFormat,
+    ) -> Result<String, String> {
         let path = archive_path.as_ref();
         if !path.exists() {
             return Err("Archive file does not exist".to_string());
@@ -54,22 +65,37 @@ impl ArchiveReport {
     ) -> Result<(), String> {
         let content = Self::generate(archive_path, format)?;
         let mut file = File::create(output_path.as_ref()).map_err(|e| e.to_string())?;
-        file.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn format_text(info: &ArchiveInfo, entries: &[ArchiveEntry]) -> String {
         let mut out = String::new();
-        out.push_str("================================================================================\n");
-        out.push_str("                       LinRAR 0.1.0 - Archive Contents Report                    \n");
-        out.push_str("================================================================================\n\n");
+        out.push_str(
+            "================================================================================\n",
+        );
+        out.push_str(
+            "                       LinRAR 0.1.0 - Archive Contents Report                    \n",
+        );
+        out.push_str(
+            "================================================================================\n\n",
+        );
 
         out.push_str(&format!("Archive:       {}\n", info.path.display()));
         out.push_str(&format!("Format:        {}\n", info.archive_type.name()));
         out.push_str(&format!("Total Files:   {}\n", info.total_files));
         out.push_str(&format!("Total Folders: {}\n", info.total_folders));
-        out.push_str(&format!("Unpacked Size: {} bytes ({:.2} MB)\n", info.unpacked_size, info.unpacked_size as f64 / 1_048_576.0));
-        out.push_str(&format!("Packed Size:   {} bytes ({:.2} MB)\n", info.packed_size, info.packed_size as f64 / 1_048_576.0));
+        out.push_str(&format!(
+            "Unpacked Size: {} bytes ({:.2} MB)\n",
+            info.unpacked_size,
+            info.unpacked_size as f64 / 1_048_576.0
+        ));
+        out.push_str(&format!(
+            "Packed Size:   {} bytes ({:.2} MB)\n",
+            info.packed_size,
+            info.packed_size as f64 / 1_048_576.0
+        ));
 
         let ratio = if info.unpacked_size > 0 {
             (info.packed_size as f64 / info.unpacked_size as f64) * 100.0
@@ -77,16 +103,29 @@ impl ArchiveReport {
             100.0
         };
         out.push_str(&format!("Ratio:         {:.1}%\n", ratio));
-        out.push_str(&format!("Solid Archive: {}\n", if info.is_solid { "Yes" } else { "No" }));
-        out.push_str(&format!("Locked:        {}\n", if info.is_locked { "Yes" } else { "No" }));
+        out.push_str(&format!(
+            "Solid Archive: {}\n",
+            if info.is_solid { "Yes" } else { "No" }
+        ));
+        out.push_str(&format!(
+            "Locked:        {}\n",
+            if info.is_locked { "Yes" } else { "No" }
+        ));
 
         if let Some(cmt) = &info.comment {
             out.push_str(&format!("Comment:\n{}\n", cmt));
         }
 
-        out.push_str("\n--------------------------------------------------------------------------------\n");
-        out.push_str(&format!("{:<40} {:>10} {:>10} {:>6} {:>8}\n", "File Path", "Size", "Packed", "Ratio", "CRC32"));
-        out.push_str("--------------------------------------------------------------------------------\n");
+        out.push_str(
+            "\n--------------------------------------------------------------------------------\n",
+        );
+        out.push_str(&format!(
+            "{:<40} {:>10} {:>10} {:>6} {:>8}\n",
+            "File Path", "Size", "Packed", "Ratio", "CRC32"
+        ));
+        out.push_str(
+            "--------------------------------------------------------------------------------\n",
+        );
 
         for e in entries {
             let r = if e.size > 0 {
@@ -107,7 +146,9 @@ impl ArchiveReport {
             ));
         }
 
-        out.push_str("--------------------------------------------------------------------------------\n");
+        out.push_str(
+            "--------------------------------------------------------------------------------\n",
+        );
         out.push_str(&format!("Total: {} items listed.\n", entries.len()));
         out
     }

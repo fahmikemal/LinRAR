@@ -1,12 +1,12 @@
+use bzip2::Compression as BzCompression;
+use bzip2::read::BzDecoder;
+use bzip2::write::BzEncoder;
+use flate2::Compression as GzCompression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use bzip2::read::BzDecoder;
-use bzip2::write::BzEncoder;
-use bzip2::Compression as BzCompression;
-use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
-use flate2::Compression as GzCompression;
 use tar::{Archive, Builder};
 
 use crate::types::{AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType};
@@ -36,40 +36,37 @@ impl TarEngine {
         let mut archive = Archive::new(boxed_reader);
         let tar_entries = archive.entries().map_err(|e| e.to_string())?;
 
-        for entry in tar_entries {
-            if let Ok(entry) = entry {
-                let path_buf = entry.path().map_err(|e| e.to_string())?.into_owned();
-                let full_path = path_buf.to_string_lossy().to_string();
-                let is_dir = entry.header().entry_type().is_dir();
-                let size = entry.header().size().unwrap_or(0);
+        for entry in tar_entries.flatten() {
+            let path_buf = entry.path().map_err(|e| e.to_string())?.into_owned();
+            let full_path = path_buf.to_string_lossy().to_string();
+            let is_dir = entry.header().entry_type().is_dir();
+            let size = entry.header().size().unwrap_or(0);
 
-                let name = full_path
-                    .trim_end_matches('/')
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .last()
-                    .unwrap_or(&full_path)
-                    .to_string();
+            let name = full_path
+                .trim_end_matches('/')
+                .split('/')
+                .rfind(|s| !s.is_empty())
+                .unwrap_or(&full_path)
+                .to_string();
 
-                total_unpacked += size;
-                if is_dir {
-                    total_folders += 1;
-                } else {
-                    total_files += 1;
-                }
-
-                entries.push(ArchiveEntry {
-                    name,
-                    full_path,
-                    size,
-                    packed_size: size, // TAR doesn't track per-file compressed size
-                    modified: "-".to_string(),
-                    crc: "-".to_string(),
-                    is_dir,
-                    encrypted: false,
-                    attributes: format!("{:o}", entry.header().mode().unwrap_or(0)),
-                });
+            total_unpacked += size;
+            if is_dir {
+                total_folders += 1;
+            } else {
+                total_files += 1;
             }
+
+            entries.push(ArchiveEntry {
+                name,
+                full_path,
+                size,
+                packed_size: size, // TAR doesn't track per-file compressed size
+                modified: "-".to_string(),
+                crc: "-".to_string(),
+                is_dir,
+                encrypted: false,
+                attributes: format!("{:o}", entry.header().mode().unwrap_or(0)),
+            });
         }
 
         let info = ArchiveInfo {
@@ -114,10 +111,12 @@ impl TarEngine {
             };
             let path_str = path_buf.to_string_lossy();
 
-            if let Some(selected) = selected_files {
-                if !selected.iter().any(|s| path_str == *s || path_str.starts_with(&format!("{}/", s))) {
-                    continue;
-                }
+            if let Some(selected) = selected_files
+                && !selected
+                    .iter()
+                    .any(|s| path_str == *s || path_str.starts_with(&format!("{}/", s)))
+            {
+                continue;
             }
 
             let outpath = dest.join(&path_buf);
@@ -158,9 +157,13 @@ impl TarEngine {
             let name = src.file_name().unwrap_or_default();
             if src.is_file() {
                 let mut f = File::open(src).map_err(|e| e.to_string())?;
-                builder.append_file(name, &mut f).map_err(|e| e.to_string())?;
+                builder
+                    .append_file(name, &mut f)
+                    .map_err(|e| e.to_string())?;
             } else if src.is_dir() {
-                builder.append_dir_all(name, src).map_err(|e| e.to_string())?;
+                builder
+                    .append_dir_all(name, src)
+                    .map_err(|e| e.to_string())?;
             }
         }
 
@@ -168,7 +171,10 @@ impl TarEngine {
         Ok(())
     }
 
-    pub fn test<P: AsRef<Path>>(archive_path: P, archive_type: ArchiveType) -> Result<bool, String> {
+    pub fn test<P: AsRef<Path>>(
+        archive_path: P,
+        archive_type: ArchiveType,
+    ) -> Result<bool, String> {
         let file = File::open(archive_path.as_ref()).map_err(|e| e.to_string())?;
 
         let boxed_reader: Box<dyn Read> = match archive_type {
@@ -189,4 +195,3 @@ impl TarEngine {
         Ok(true)
     }
 }
-

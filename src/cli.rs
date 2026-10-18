@@ -1,14 +1,26 @@
-use std::path::PathBuf;
-use clap::{Parser, Subcommand};
 use crate::types::CompressionLevel;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "linrar", author = "LinRAR Team", version = "0.1.0", about = "Modern Universal Archive Manager for Linux in Pure Rust (MIT License)")]
+#[command(
+    name = "linrar",
+    author = "LinRAR Team",
+    version = "0.1.0",
+    about = "Modern Universal Archive Manager for Linux in Pure Rust (MIT License)"
+)]
 pub struct Cli {
-    #[arg(short = 'g', long = "gui", help = "Launch LinRAR graphical user interface")]
+    #[arg(
+        short = 'g',
+        long = "gui",
+        help = "Launch LinRAR graphical user interface"
+    )]
     pub gui: bool,
 
-    #[arg(short = 'm', help = "Set compression level (0-store, 1-fastest, 2-fast, 3-normal, 4-good, 5-best)")]
+    #[arg(
+        short = 'm',
+        help = "Set compression level (0-store, 1-fastest, 2-fast, 3-normal, 4-good, 5-best)"
+    )]
     pub compression_level: Option<u8>,
 
     #[arg(short = 'p', help = "Set password")]
@@ -39,10 +51,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
     #[command(name = "a", about = "Add files to archive")]
-    Add {
-        archive: String,
-        files: Vec<String>,
-    },
+    Add { archive: String, files: Vec<String> },
 
     #[command(name = "x", about = "Extract files with full paths")]
     Extract {
@@ -51,7 +60,10 @@ pub enum Commands {
         files: Vec<String>,
     },
 
-    #[command(name = "e", about = "Extract files to current directory (ignore paths)")]
+    #[command(
+        name = "e",
+        about = "Extract files to current directory (ignore paths)"
+    )]
     ExtractFlat {
         archive: String,
         destination: Option<String>,
@@ -59,38 +71,36 @@ pub enum Commands {
     },
 
     #[command(name = "l", about = "List contents of archive")]
-    List {
-        archive: String,
-    },
+    List { archive: String },
 
     #[command(name = "t", about = "Test archive files integrity")]
-    Test {
-        archive: String,
-    },
+    Test { archive: String },
 
     #[command(name = "d", about = "Delete files from archive")]
-    Delete {
-        archive: String,
-        files: Vec<String>,
-    },
+    Delete { archive: String, files: Vec<String> },
 
     #[command(name = "b", about = "Run multithreaded hardware benchmark")]
     Benchmark {
-        #[arg(short = 't', long = "time", default_value = "5", help = "Benchmark duration in seconds")]
+        #[arg(
+            short = 't',
+            long = "time",
+            default_value = "5",
+            help = "Benchmark duration in seconds"
+        )]
         time: u64,
     },
 
     #[command(name = "s", about = "Scan archive for viruses and security threats")]
-    Scan {
-        archive: String,
-    },
+    Scan { archive: String },
 
     #[command(name = "r", about = "Repair damaged archive")]
-    Repair {
-        archive: String,
-    },
+    Repair { archive: String },
 
-    #[command(name = "find", alias = "f", about = "Find files in directory or inside archives")]
+    #[command(
+        name = "find",
+        alias = "f",
+        about = "Find files in directory or inside archives"
+    )]
     Find {
         pattern: String,
         path: Option<String>,
@@ -98,13 +108,19 @@ pub enum Commands {
         archives: bool,
     },
 
-    #[command(name = "convert", about = "Convert archive format (e.g. zip, rar, tar.gz)")]
+    #[command(
+        name = "convert",
+        about = "Convert archive format (e.g. zip, rar, tar.gz)"
+    )]
     Convert {
         archive: String,
         target_format: String,
     },
 
-    #[command(name = "report", about = "Generate archive contents report (text or html)")]
+    #[command(
+        name = "report",
+        about = "Generate archive contents report (text or html)"
+    )]
     Report {
         archive: String,
         #[arg(short, long, help = "Output report file path")]
@@ -123,14 +139,15 @@ pub enum Commands {
     #[command(name = "rr", about = "Add data recovery record to archive")]
     Protect {
         archive: String,
-        #[arg(default_value = "3%", help = "Recovery record percent (e.g. 3%, 5%, 10%)")]
+        #[arg(
+            default_value = "3%",
+            help = "Recovery record percent (e.g. 3%, 5%, 10%)"
+        )]
         percent: String,
     },
 
     #[command(name = "k", about = "Lock archive against further modifications")]
-    Lock {
-        archive: String,
-    },
+    Lock { archive: String },
 
     #[command(name = "c", about = "Set or update archive comment")]
     Comment {

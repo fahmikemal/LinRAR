@@ -1,7 +1,7 @@
+use crate::types::ArchiveType;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use crate::types::ArchiveType;
 
 const RAR5_MAGIC: &[u8] = &[0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00];
 const RAR4_MAGIC: &[u8] = &[0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00];
@@ -84,18 +84,19 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
     }
 
     // Scan for embedded RAR SFX in executable files up to 2MB
-    if bytes_read >= 2 && header.starts_with(b"MZ") {
-        if let Ok(mut sfx_scan) = File::open(path) {
-            let mut buffer = vec![0u8; 1024 * 1024 * 2]; // 2MB
-            if let Ok(n) = sfx_scan.read(&mut buffer) {
-                if let Some(pos) = buffer[..n].windows(8).position(|w| w == RAR5_MAGIC) {
-                    let _ = pos;
-                    return ArchiveType::Rar5;
-                }
-                if let Some(pos) = buffer[..n].windows(7).position(|w| w == RAR4_MAGIC) {
-                    let _ = pos;
-                    return ArchiveType::Rar4;
-                }
+    if bytes_read >= 2
+        && header.starts_with(b"MZ")
+        && let Ok(mut sfx_scan) = File::open(path)
+    {
+        let mut buffer = vec![0u8; 1024 * 1024 * 2]; // 2MB
+        if let Ok(n) = sfx_scan.read(&mut buffer) {
+            if let Some(pos) = buffer[..n].windows(8).position(|w| w == RAR5_MAGIC) {
+                let _ = pos;
+                return ArchiveType::Rar5;
+            }
+            if let Some(pos) = buffer[..n].windows(7).position(|w| w == RAR4_MAGIC) {
+                let _ = pos;
+                return ArchiveType::Rar4;
             }
         }
     }

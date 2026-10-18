@@ -1,10 +1,10 @@
-use std::path::PathBuf;
 use crate::core::benchmark::BenchmarkRunner;
 use crate::core::finder::SearchMatch;
 use crate::core::repair::RepairResult;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::ScanResult;
 use crate::types::{ArchiveInfo, ArchiveType, CompressionLevel};
+use std::path::{Path, PathBuf};
 
 pub enum DialogState {
     None,
@@ -70,14 +70,21 @@ pub enum DialogState {
 }
 
 impl DialogState {
-    pub fn new_add(sources: Vec<PathBuf>, default_dir: &PathBuf) -> Self {
+    pub fn new_add(sources: Vec<PathBuf>, default_dir: &Path) -> Self {
         let first_name = if let Some(first) = sources.first() {
-            first.file_name().unwrap_or_default().to_string_lossy().to_string()
+            first
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
         } else {
             "archive".to_string()
         };
 
-        let archive_name = default_dir.join(format!("{}.rar", first_name)).to_string_lossy().to_string();
+        let archive_name = default_dir
+            .join(format!("{}.rar", first_name))
+            .to_string_lossy()
+            .to_string();
 
         DialogState::AddArchive {
             sources,
@@ -94,7 +101,11 @@ impl DialogState {
     }
 
     pub fn new_extract(archive_path: PathBuf) -> Self {
-        let parent = archive_path.parent().unwrap_or(&archive_path).to_string_lossy().to_string();
+        let parent = archive_path
+            .parent()
+            .unwrap_or(&archive_path)
+            .to_string_lossy()
+            .to_string();
         DialogState::ExtractArchive {
             archive_path,
             dest_path: parent,
@@ -134,7 +145,8 @@ impl DialogState {
     }
 
     pub fn new_report(archive_path: PathBuf) -> Self {
-        let content = ArchiveReport::generate(&archive_path, ReportFormat::Text).unwrap_or_default();
+        let content =
+            ArchiveReport::generate(&archive_path, ReportFormat::Text).unwrap_or_default();
         DialogState::GenerateReport {
             archive_path,
             format: ReportFormat::Text,

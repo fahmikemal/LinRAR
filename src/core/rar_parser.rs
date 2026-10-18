@@ -1,7 +1,7 @@
+use crate::types::{ArchiveEntry, ArchiveInfo, ArchiveType};
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
-use crate::types::{ArchiveEntry, ArchiveInfo, ArchiveType};
 
 pub struct RarParser;
 
@@ -9,13 +9,13 @@ impl RarParser {
     pub fn parse<P: AsRef<Path>>(path: P) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         let path = path.as_ref();
         let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
-        
+
         let mut magic = [0u8; 8];
         let n = file.read(&mut magic).map_err(|e| e.to_string())?;
-        
-        if n >= 8 && &magic[..8] == &[0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00] {
+
+        if n >= 8 && magic[..8] == [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00] {
             Self::parse_rar5(&mut file, path)
-        } else if n >= 7 && &magic[..7] == &[0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00] {
+        } else if n >= 7 && magic[..7] == [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00] {
             Self::parse_rar4(&mut file, path)
         } else {
             Err("Not a valid RAR archive signature".to_string())
@@ -41,7 +41,10 @@ impl RarParser {
         Ok(result)
     }
 
-    fn parse_rar5<R: Read + Seek>(reader: &mut R, path: &Path) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
+    fn parse_rar5<R: Read + Seek>(
+        reader: &mut R,
+        path: &Path,
+    ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         reader.seek(SeekFrom::Start(8)).map_err(|e| e.to_string())?;
 
         let mut entries = Vec::new();
@@ -136,7 +139,7 @@ impl RarParser {
                     let mut name_bytes = vec![0u8; name_len];
                     let _ = cur.read_exact(&mut name_bytes);
                     let full_name = String::from_utf8_lossy(&name_bytes).replace('\\', "/");
-                    let file_name = full_name.split('/').filter(|s| !s.is_empty()).last().unwrap_or(&full_name).to_string();
+                    let file_name = full_name.split('/').rfind(|s| !s.is_empty()).unwrap_or(&full_name).to_string();
 
                     total_unpacked += unpacked_size;
                     total_packed += data_size;
@@ -153,21 +156,18 @@ impl RarParser {
                         attributes: format!("{:o}", attributes),
                     });
                 }
-                3 => {
+                3
                     // Service Header (comments, ACL, recovery, etc.)
                     // Check if comment service header
-                    if data_size > 0 && data_size < 65536 {
+                    if data_size > 0 && data_size < 65536 => {
                         let mut cmt_bytes = vec![0u8; data_size as usize];
                         let current_reader_pos = header_start_pos + header_size;
-                        if reader.seek(SeekFrom::Start(current_reader_pos)).is_ok() {
-                            if reader.read_exact(&mut cmt_bytes).is_ok() {
-                                if let Ok(s) = String::from_utf8(cmt_bytes) {
+                        if reader.seek(SeekFrom::Start(current_reader_pos)).is_ok()
+                            && reader.read_exact(&mut cmt_bytes).is_ok()
+                                && let Ok(s) = String::from_utf8(cmt_bytes) {
                                     comment = Some(s);
                                 }
-                            }
-                        }
                     }
-                }
                 _ => {}
             }
 
@@ -197,7 +197,10 @@ impl RarParser {
         Ok((info, entries))
     }
 
-    fn parse_rar4<R: Read + Seek>(reader: &mut R, path: &Path) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
+    fn parse_rar4<R: Read + Seek>(
+        reader: &mut R,
+        path: &Path,
+    ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         reader.seek(SeekFrom::Start(7)).map_err(|e| e.to_string())?;
 
         let mut entries = Vec::new();
@@ -252,9 +255,24 @@ impl RarParser {
                     // File header
                     let mut file_hdr = [0u8; 21];
                     if reader.read_exact(&mut file_hdr).is_ok() {
-                        let packed_size = u32::from_le_bytes([file_hdr[0], file_hdr[1], file_hdr[2], file_hdr[3]]) as u64;
-                        let unpacked_size = u32::from_le_bytes([file_hdr[4], file_hdr[5], file_hdr[6], file_hdr[7]]) as u64;
-                        let file_crc = u32::from_le_bytes([file_hdr[12], file_hdr[13], file_hdr[14], file_hdr[15]]);
+                        let packed_size = u32::from_le_bytes([
+                            file_hdr[0],
+                            file_hdr[1],
+                            file_hdr[2],
+                            file_hdr[3],
+                        ]) as u64;
+                        let unpacked_size = u32::from_le_bytes([
+                            file_hdr[4],
+                            file_hdr[5],
+                            file_hdr[6],
+                            file_hdr[7],
+                        ]) as u64;
+                        let file_crc = u32::from_le_bytes([
+                            file_hdr[12],
+                            file_hdr[13],
+                            file_hdr[14],
+                            file_hdr[15],
+                        ]);
                         let name_size = u16::from_le_bytes([file_hdr[19], file_hdr[20]]) as usize;
 
                         let is_dir = (block_flags & 0x00E0) == 0x00E0;
@@ -262,7 +280,11 @@ impl RarParser {
                         let mut name_buf = vec![0u8; name_size];
                         let _ = reader.read_exact(&mut name_buf);
                         let full_name = String::from_utf8_lossy(&name_buf).replace('\\', "/");
-                        let file_name = full_name.split('/').filter(|s| !s.is_empty()).last().unwrap_or(&full_name).to_string();
+                        let file_name = full_name
+                            .split('/')
+                            .rfind(|s| !s.is_empty())
+                            .unwrap_or(&full_name)
+                            .to_string();
 
                         total_unpacked += unpacked_size;
                         total_packed += packed_size;

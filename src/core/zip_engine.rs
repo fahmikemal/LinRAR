@@ -9,10 +9,13 @@ use crate::types::{AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, Compressi
 pub struct ZipEngine;
 
 impl ZipEngine {
-    pub fn read_entries<P: AsRef<Path>>(path: P) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
+    pub fn read_entries<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         let path = path.as_ref();
         let file = File::open(path).map_err(|e| format!("Failed to open zip: {}", e))?;
-        let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid zip format: {}", e))?;
+        let mut archive =
+            ZipArchive::new(file).map_err(|e| format!("Invalid zip format: {}", e))?;
 
         let mut entries = Vec::new();
         let mut total_unpacked = 0u64;
@@ -27,8 +30,7 @@ impl ZipEngine {
                 let name = full_path
                     .trim_end_matches('/')
                     .split('/')
-                    .filter(|s| !s.is_empty())
-                    .last()
+                    .rfind(|s| !s.is_empty())
                     .unwrap_or(&full_path)
                     .to_string();
 
@@ -94,7 +96,10 @@ impl ZipEngine {
 
             if let Some(selected) = selected_files {
                 let name = file.name();
-                if !selected.iter().any(|s| name == s || name.starts_with(&format!("{}/", s))) {
+                if !selected
+                    .iter()
+                    .any(|s| name == s || name.starts_with(&format!("{}/", s)))
+                {
                     continue;
                 }
             }
@@ -102,10 +107,10 @@ impl ZipEngine {
             if file.is_dir() {
                 fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
             } else {
-                if let Some(p) = outpath.parent() {
-                    if !p.exists() {
-                        fs::create_dir_all(p).map_err(|e| e.to_string())?;
-                    }
+                if let Some(p) = outpath.parent()
+                    && !p.exists()
+                {
+                    fs::create_dir_all(p).map_err(|e| e.to_string())?;
                 }
                 let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
                 std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
@@ -138,8 +143,13 @@ impl ZipEngine {
             }
 
             if src.is_file() {
-                let filename = src.file_name().unwrap_or_default().to_string_lossy().to_string();
-                zip.start_file(filename, file_options).map_err(|e| e.to_string())?;
+                let filename = src
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                zip.start_file(filename, file_options)
+                    .map_err(|e| e.to_string())?;
                 let mut f = File::open(src).map_err(|e| e.to_string())?;
                 std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
             } else if src.is_dir() {
@@ -150,10 +160,11 @@ impl ZipEngine {
                     let relative_str = relative.to_string_lossy().replace('\\', "/");
 
                     if entry.file_type().is_dir() {
-                        zip.add_directory(&format!("{}/", relative_str), file_options)
+                        zip.add_directory(format!("{}/", relative_str), file_options)
                             .map_err(|e| e.to_string())?;
                     } else {
-                        zip.start_file(&relative_str, file_options).map_err(|e| e.to_string())?;
+                        zip.start_file(&relative_str, file_options)
+                            .map_err(|e| e.to_string())?;
                         let mut f = File::open(path).map_err(|e| e.to_string())?;
                         std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
                     }
@@ -182,4 +193,3 @@ impl ZipEngine {
         Ok(true)
     }
 }
-

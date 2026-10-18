@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::{Path, PathBuf};
 use eframe::egui::{self, Align, Color32, Layout, RichText, ScrollArea, Vec2};
 use egui_extras::{Column, TableBuilder};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::{detect_archive_type, is_supported_archive};
@@ -112,7 +112,11 @@ impl LinrarApp {
                 let path = entry.path();
                 let is_dir = path.is_dir();
                 let name = entry.file_name().to_string_lossy().to_string();
-                let size = if is_dir { 0 } else { entry.metadata().map(|m| m.len()).unwrap_or(0) };
+                let size = if is_dir {
+                    0
+                } else {
+                    entry.metadata().map(|m| m.len()).unwrap_or(0)
+                };
 
                 self.local_items.push(LocalFileItem {
                     name,
@@ -134,7 +138,11 @@ impl LinrarApp {
             }
         });
 
-        self.status_message = format!("{} objects in {}", self.local_items.len(), self.current_dir.display());
+        self.status_message = format!(
+            "{} objects in {}",
+            self.local_items.len(),
+            self.current_dir.display()
+        );
     }
 
     pub fn open_archive(&mut self, path: &Path) {
@@ -142,7 +150,9 @@ impl LinrarApp {
         let result = match arch_type {
             ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(path),
             ArchiveType::Zip => ZipEngine::read_entries(path),
-            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => TarEngine::read_entries(path, arch_type),
+            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
+                TarEngine::read_entries(path, arch_type)
+            }
             _ => Err("Unsupported archive format".to_string()),
         };
 
@@ -154,7 +164,10 @@ impl LinrarApp {
                 self.archive_subpath.clear();
                 self.selected_archive_files.clear();
                 self.view_mode = ViewMode::VirtualArchive;
-                self.status_message = format!("Opened archive: {}", path.file_name().unwrap_or_default().to_string_lossy());
+                self.status_message = format!(
+                    "Opened archive: {}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                );
             }
             Err(e) => {
                 self.dialog_state = DialogState::Message {
@@ -197,7 +210,11 @@ impl LinrarApp {
                 if seen_dirs.insert(dir_name.clone()) {
                     let mut dir_entry = entry.clone();
                     dir_entry.name = dir_name.clone();
-                    dir_entry.full_path = if prefix.is_empty() { dir_name } else { format!("{}{}", prefix, dir_name) };
+                    dir_entry.full_path = if prefix.is_empty() {
+                        dir_name
+                    } else {
+                        format!("{}{}", prefix, dir_name)
+                    };
                     dir_entry.is_dir = true;
                     results.push(dir_entry);
                 }
@@ -261,10 +278,17 @@ impl eframe::App for LinrarApp {
 
         // Set Dynamic Window Title for Wayland / X11 (e.g. "payload.rar - LinRAR")
         let window_title = match &self.current_archive {
-            Some(arch) => format!("{} - LinRAR", arch.file_name().unwrap_or_default().to_string_lossy()),
+            Some(arch) => format!(
+                "{} - LinRAR",
+                arch.file_name().unwrap_or_default().to_string_lossy()
+            ),
             None => {
                 if self.view_mode == ViewMode::LocalFileSystem {
-                    let dir_name = self.current_dir.file_name().unwrap_or_default().to_string_lossy();
+                    let dir_name = self
+                        .current_dir
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy();
                     if dir_name.is_empty() {
                         "LinRAR".to_string()
                     } else {
@@ -275,7 +299,8 @@ impl eframe::App for LinrarApp {
                 }
             }
         };
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(window_title));
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Title(window_title));
 
         // Global Keyboard Shortcuts
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::A)) {
@@ -302,10 +327,10 @@ impl eframe::App for LinrarApp {
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::B)) {
             self.dialog_state = DialogState::new_benchmark();
         }
-        if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::I)) {
-            if let Some(info) = &self.archive_info {
-                self.dialog_state = DialogState::ArchiveInfo(info.clone());
-            }
+        if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::I))
+            && let Some(info) = &self.archive_info
+        {
+            self.dialog_state = DialogState::ArchiveInfo(info.clone());
         }
         if ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::R)) {
             self.trigger_report_dialog();
@@ -364,7 +389,10 @@ impl eframe::App for LinrarApp {
                         self.trigger_rename_dialog();
                     }
                     ui.separator();
-                    if ui.button("Protect archive (Recovery Record)... (Alt+P)").clicked() {
+                    if ui
+                        .button("Protect archive (Recovery Record)... (Alt+P)")
+                        .clicked()
+                    {
                         ui.close();
                         self.trigger_protect_dialog();
                     }
@@ -426,11 +454,17 @@ impl eframe::App for LinrarApp {
                 });
 
                 ui.menu_button("Theme", |ui| {
-                    if ui.selectable_label(self.theme_mode == ThemeMode::Dark, "Dark Theme").clicked() {
+                    if ui
+                        .selectable_label(self.theme_mode == ThemeMode::Dark, "Dark Theme")
+                        .clicked()
+                    {
                         self.theme_mode = ThemeMode::Dark;
                         ui.close();
                     }
-                    if ui.selectable_label(self.theme_mode == ThemeMode::Light, "Light Theme").clicked() {
+                    if ui
+                        .selectable_label(self.theme_mode == ThemeMode::Light, "Light Theme")
+                        .clicked()
+                    {
                         self.theme_mode = ThemeMode::Light;
                         ui.close();
                     }
@@ -450,12 +484,23 @@ impl eframe::App for LinrarApp {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let brand_text = match &self.current_archive {
-                        Some(arch) => format!("{} - LinRAR", arch.file_name().unwrap_or_default().to_string_lossy()),
+                        Some(arch) => format!(
+                            "{} - LinRAR",
+                            arch.file_name().unwrap_or_default().to_string_lossy()
+                        ),
                         None => "LinRAR".to_string(),
                     };
-                    ui.label(RichText::new(brand_text).strong().size(12.0).color(self.accent_color()));
+                    ui.label(
+                        RichText::new(brand_text)
+                            .strong()
+                            .size(12.0)
+                            .color(self.accent_color()),
+                    );
                     if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
-                        ui.add(egui::Image::from_texture((tex.id(), egui::vec2(16.0, 16.0))));
+                        ui.add(egui::Image::from_texture((
+                            tex.id(),
+                            egui::vec2(16.0, 16.0),
+                        )));
                     }
                 });
             });
@@ -467,55 +512,150 @@ impl eframe::App for LinrarApp {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.add_icon.as_ref()), "Add", true).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.add_icon.as_ref()),
+                        "Add",
+                        true,
+                    )
+                    .clicked()
+                {
                     self.trigger_add_dialog();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.extract_icon.as_ref()), "Extract To", true).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.extract_icon.as_ref()),
+                        "Extract To",
+                        true,
+                    )
+                    .clicked()
+                {
                     self.trigger_extract_dialog();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.test_icon.as_ref()), "Test", true).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.test_icon.as_ref()),
+                        "Test",
+                        true,
+                    )
+                    .clicked()
+                {
                     self.trigger_test_archive();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.view_icon.as_ref()), "View", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.view_icon.as_ref()),
+                        "View",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_view_file();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.find_icon.as_ref()), "Find", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.find_icon.as_ref()),
+                        "Find",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_find_dialog();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.repair_icon.as_ref()), "Repair", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.repair_icon.as_ref()),
+                        "Repair",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_repair_dialog();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.convert_icon.as_ref()), "Convert", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.convert_icon.as_ref()),
+                        "Convert",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_convert_dialog();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.report_icon.as_ref()), "Report", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.report_icon.as_ref()),
+                        "Report",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_report_dialog();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.scan_icon.as_ref()), "Scan", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.scan_icon.as_ref()),
+                        "Scan",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_scan_archive();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.benchmark_icon.as_ref()), "Benchmark", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.benchmark_icon.as_ref()),
+                        "Benchmark",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.dialog_state = DialogState::new_benchmark();
                 }
 
                 ui.separator();
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.info_icon.as_ref()), "Info", false).clicked() {
-                    if let Some(info) = &self.archive_info {
-                        self.dialog_state = DialogState::ArchiveInfo(info.clone());
-                    }
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.info_icon.as_ref()),
+                        "Info",
+                        false,
+                    )
+                    .clicked()
+                    && let Some(info) = &self.archive_info
+                {
+                    self.dialog_state = DialogState::ArchiveInfo(info.clone());
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.delete_icon.as_ref()), "Delete", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.delete_icon.as_ref()),
+                        "Delete",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.trigger_delete();
                 }
             });
@@ -525,11 +665,27 @@ impl eframe::App for LinrarApp {
         // Address & Navigation Bar
         egui::Panel::top("address_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.up_icon.as_ref()), "Up", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.up_icon.as_ref()),
+                        "Up",
+                        false,
+                    )
+                    .clicked()
+                {
                     self.go_up_one_level();
                 }
 
-                if self.render_icon_button(ui, self.icons.as_ref().and_then(|i| i.refresh_icon.as_ref()), "Refresh", false).clicked() {
+                if self
+                    .render_icon_button(
+                        ui,
+                        self.icons.as_ref().and_then(|i| i.refresh_icon.as_ref()),
+                        "Refresh",
+                        false,
+                    )
+                    .clicked()
+                {
                     if self.view_mode == ViewMode::LocalFileSystem {
                         self.refresh_local();
                     } else if let Some(path) = self.current_archive.clone() {
@@ -540,7 +696,11 @@ impl eframe::App for LinrarApp {
                 let current_display = match self.view_mode {
                     ViewMode::LocalFileSystem => self.current_dir.display().to_string(),
                     ViewMode::VirtualArchive => {
-                        let arch_name = self.current_archive.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+                        let arch_name = self
+                            .current_archive
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default();
                         if self.archive_subpath.is_empty() {
                             arch_name
                         } else {
@@ -562,7 +722,11 @@ impl eframe::App for LinrarApp {
                 } else {
                     Color32::LIGHT_GRAY
                 };
-                ui.label(RichText::new(&self.status_message).size(11.0).color(status_color));
+                ui.label(
+                    RichText::new(&self.status_message)
+                        .size(11.0)
+                        .color(status_color),
+                );
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if let Some(info) = &self.archive_info {
@@ -580,41 +744,46 @@ impl eframe::App for LinrarApp {
                         } else {
                             Color32::GRAY
                         };
-                        ui.label(RichText::new("LinRAR 0.1.0 (Rust Engine)").size(11.0).color(brand_color));
+                        ui.label(
+                            RichText::new("LinRAR 0.1.0 (Rust Engine)")
+                                .size(11.0)
+                                .color(brand_color),
+                        );
                     }
                 });
             });
         });
 
         // Side Comment Pane (if active and archive has comment)
-        if self.show_comment_pane {
-            if let Some(info) = &self.archive_info {
-                if let Some(cmt) = &info.comment {
-                    egui::Panel::right("comment_panel")
-                        .resizable(true)
-                        .default_size(220.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                if let Some(tex) = self.icons.as_ref().and_then(|i| i.comment_icon.as_ref()) {
-                                    ui.add(egui::Image::from_texture((tex.id(), egui::vec2(16.0, 16.0))));
-                                }
-                                ui.heading(RichText::new("Archive Comment").size(14.0));
-                            });
-                            ui.separator();
-                            ScrollArea::vertical().show(ui, |ui| {
-                                ui.monospace(cmt);
-                            });
-                        });
-                }
-            }
+        if self.show_comment_pane
+            && let Some(info) = &self.archive_info
+            && let Some(cmt) = &info.comment
+        {
+            egui::Panel::right("comment_panel")
+                .resizable(true)
+                .default_size(220.0)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if let Some(tex) = self.icons.as_ref().and_then(|i| i.comment_icon.as_ref())
+                        {
+                            ui.add(egui::Image::from_texture((
+                                tex.id(),
+                                egui::vec2(16.0, 16.0),
+                            )));
+                        }
+                        ui.heading(RichText::new("Archive Comment").size(14.0));
+                    });
+                    ui.separator();
+                    ScrollArea::vertical().show(ui, |ui| {
+                        ui.monospace(cmt);
+                    });
+                });
         }
 
         // Central File Table
-        egui::CentralPanel::default().show(ui, |ui| {
-            match self.view_mode {
-                ViewMode::LocalFileSystem => self.render_local_table(ui),
-                ViewMode::VirtualArchive => self.render_archive_table(ui),
-            }
+        egui::CentralPanel::default().show(ui, |ui| match self.view_mode {
+            ViewMode::LocalFileSystem => self.render_local_table(ui),
+            ViewMode::VirtualArchive => self.render_archive_table(ui),
         });
 
         // Render Active Modal Dialog
@@ -667,14 +836,21 @@ impl LinrarApp {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
                                 if let Some(tex) = icon {
-                                    ui.add(egui::Image::from_texture((tex.id(), egui::vec2(16.0, 16.0))));
+                                    ui.add(egui::Image::from_texture((
+                                        tex.id(),
+                                        egui::vec2(16.0, 16.0),
+                                    )));
                                 }
                                 ui.label(&item.name);
                             });
                         });
 
                         row.col(|ui| {
-                            ui.label(if item.is_dir { "-".to_string() } else { Self::format_size(item.size) });
+                            ui.label(if item.is_dir {
+                                "-".to_string()
+                            } else {
+                                Self::format_size(item.size)
+                            });
                         });
 
                         row.col(|ui| {
@@ -750,7 +926,11 @@ impl LinrarApp {
                     let icon = self.icons.as_ref().and_then(|ic| {
                         if entry.is_dir {
                             ic.folder_icon.as_ref()
-                        } else if entry.name.ends_with(".rar") || entry.name.ends_with(".zip") || entry.name.ends_with(".tar") || entry.name.ends_with(".tar.gz") {
+                        } else if entry.name.ends_with(".rar")
+                            || entry.name.ends_with(".zip")
+                            || entry.name.ends_with(".tar")
+                            || entry.name.ends_with(".tar.gz")
+                        {
                             ic.archive_icon.as_ref()
                         } else {
                             ic.file_icon.as_ref()
@@ -764,7 +944,10 @@ impl LinrarApp {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
                                 if let Some(tex) = icon {
-                                    ui.add(egui::Image::from_texture((tex.id(), egui::vec2(16.0, 16.0))));
+                                    ui.add(egui::Image::from_texture((
+                                        tex.id(),
+                                        egui::vec2(16.0, 16.0),
+                                    )));
                                 }
                                 ui.label(&entry.name);
                             });
@@ -780,7 +963,10 @@ impl LinrarApp {
 
                         row.col(|ui| {
                             let ratio = if entry.size > 0 {
-                                format!("{:.0}%", (entry.packed_size as f64 / entry.size as f64) * 100.0)
+                                format!(
+                                    "{:.0}%",
+                                    (entry.packed_size as f64 / entry.size as f64) * 100.0
+                                )
                             } else {
                                 "-".to_string()
                             };
@@ -796,7 +982,8 @@ impl LinrarApp {
                         if resp.clicked() {
                             if is_ctrl {
                                 if is_selected {
-                                    self.selected_archive_files.retain(|p| p != &entry.full_path);
+                                    self.selected_archive_files
+                                        .retain(|p| p != &entry.full_path);
                                 } else {
                                     self.selected_archive_files.push(entry.full_path.clone());
                                 }
@@ -812,13 +999,13 @@ impl LinrarApp {
                 }
             });
 
-                if let Some(folder) = enter_folder {
-                    if self.archive_subpath.is_empty() {
-                        self.archive_subpath = folder;
-                    } else {
-                        self.archive_subpath = format!("{}/{}", self.archive_subpath, folder);
-                    }
-                }
+        if let Some(folder) = enter_folder {
+            if self.archive_subpath.is_empty() {
+                self.archive_subpath = folder;
+            } else {
+                self.archive_subpath = format!("{}/{}", self.archive_subpath, folder);
+            }
+        }
     }
 
     fn go_up_one_level(&mut self) {
@@ -848,7 +1035,8 @@ impl LinrarApp {
         if self.selected_local.is_empty() {
             self.dialog_state = DialogState::Message {
                 title: "No Files Selected".to_string(),
-                message: "Please select one or more files or folders to add to an archive.".to_string(),
+                message: "Please select one or more files or folders to add to an archive."
+                    .to_string(),
                 is_error: false,
             };
             return;
@@ -890,37 +1078,40 @@ impl LinrarApp {
             ViewMode::LocalFileSystem => self.selected_local.first().cloned(),
         };
 
-        if let Some(path) = target {
-            if is_supported_archive(&path) {
-                let arch_type = detect_archive_type(&path);
-                let res = match arch_type {
-                    ArchiveType::Zip => ZipEngine::test(&path),
-                    ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => TarEngine::test(&path, arch_type),
-                    _ => RarEngine::test(&path),
-                };
+        if let Some(path) = target
+            && is_supported_archive(&path)
+        {
+            let arch_type = detect_archive_type(&path);
+            let res = match arch_type {
+                ArchiveType::Zip => ZipEngine::test(&path),
+                ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
+                    TarEngine::test(&path, arch_type)
+                }
+                _ => RarEngine::test(&path),
+            };
 
-                match res {
-                    Ok(true) => {
-                        self.dialog_state = DialogState::Message {
+            match res {
+                Ok(true) => {
+                    self.dialog_state = DialogState::Message {
                             title: "Test Archive Integrity".to_string(),
                             message: "All archive files passed integrity verification successfully. No errors found!".to_string(),
                             is_error: false,
                         };
-                    }
-                    Ok(false) => {
-                        self.dialog_state = DialogState::Message {
-                            title: "Test Archive Integrity".to_string(),
-                            message: "Errors were detected during archive integrity testing.".to_string(),
-                            is_error: true,
-                        };
-                    }
-                    Err(e) => {
-                        self.dialog_state = DialogState::Message {
-                            title: "Test Archive Error".to_string(),
-                            message: e,
-                            is_error: true,
-                        };
-                    }
+                }
+                Ok(false) => {
+                    self.dialog_state = DialogState::Message {
+                        title: "Test Archive Integrity".to_string(),
+                        message: "Errors were detected during archive integrity testing."
+                            .to_string(),
+                        is_error: true,
+                    };
+                }
+                Err(e) => {
+                    self.dialog_state = DialogState::Message {
+                        title: "Test Archive Error".to_string(),
+                        message: e,
+                        is_error: true,
+                    };
                 }
             }
         }
@@ -929,7 +1120,11 @@ impl LinrarApp {
     fn trigger_repair_dialog(&mut self) {
         let arch = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
-            ViewMode::LocalFileSystem => self.selected_local.first().filter(|p| is_supported_archive(p)).cloned(),
+            ViewMode::LocalFileSystem => self
+                .selected_local
+                .first()
+                .filter(|p| is_supported_archive(p))
+                .cloned(),
         };
         if let Some(path) = arch {
             self.dialog_state = DialogState::new_repair(path);
@@ -945,7 +1140,11 @@ impl LinrarApp {
     fn trigger_convert_dialog(&mut self) {
         let arch = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
-            ViewMode::LocalFileSystem => self.selected_local.first().filter(|p| is_supported_archive(p)).cloned(),
+            ViewMode::LocalFileSystem => self
+                .selected_local
+                .first()
+                .filter(|p| is_supported_archive(p))
+                .cloned(),
         };
         if let Some(path) = arch {
             self.dialog_state = DialogState::new_convert(path);
@@ -974,7 +1173,11 @@ impl LinrarApp {
     fn trigger_report_dialog(&mut self) {
         let arch = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
-            ViewMode::LocalFileSystem => self.selected_local.first().filter(|p| is_supported_archive(p)).cloned(),
+            ViewMode::LocalFileSystem => self
+                .selected_local
+                .first()
+                .filter(|p| is_supported_archive(p))
+                .cloned(),
         };
         if let Some(path) = arch {
             self.dialog_state = DialogState::new_report(path);
@@ -990,27 +1193,31 @@ impl LinrarApp {
     fn trigger_protect_dialog(&mut self) {
         let arch = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
-            ViewMode::LocalFileSystem => self.selected_local.first().filter(|p| is_supported_archive(p)).cloned(),
+            ViewMode::LocalFileSystem => self
+                .selected_local
+                .first()
+                .filter(|p| is_supported_archive(p))
+                .cloned(),
         };
         if let Some(path) = arch {
             self.dialog_state = DialogState::new_protect(path);
         } else {
             self.dialog_state = DialogState::Message {
                 title: "Protect Archive".to_string(),
-                message: "Please open or select a RAR archive to add a recovery record.".to_string(),
+                message: "Please open or select a RAR archive to add a recovery record."
+                    .to_string(),
                 is_error: false,
             };
         }
     }
 
     fn trigger_rename_dialog(&mut self) {
-        if self.view_mode == ViewMode::VirtualArchive {
-            if let Some(arch) = self.current_archive.clone() {
-                if let Some(first) = self.selected_archive_files.first() {
-                    self.dialog_state = DialogState::new_rename(arch, first.clone());
-                    return;
-                }
-            }
+        if self.view_mode == ViewMode::VirtualArchive
+            && let Some(arch) = self.current_archive.clone()
+            && let Some(first) = self.selected_archive_files.first()
+        {
+            self.dialog_state = DialogState::new_rename(arch, first.clone());
+            return;
         }
         self.dialog_state = DialogState::Message {
             title: "Rename".to_string(),
@@ -1022,7 +1229,11 @@ impl LinrarApp {
     fn trigger_lock_archive(&mut self) {
         let arch = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
-            ViewMode::LocalFileSystem => self.selected_local.first().filter(|p| is_supported_archive(p)).cloned(),
+            ViewMode::LocalFileSystem => self
+                .selected_local
+                .first()
+                .filter(|p| is_supported_archive(p))
+                .cloned(),
         };
         if let Some(path) = arch {
             match RarEngine::lock(&path) {
@@ -1049,18 +1260,18 @@ impl LinrarApp {
 
     fn trigger_delete(&mut self) {
         if self.view_mode == ViewMode::VirtualArchive {
-            if let Some(arch) = self.current_archive.clone() {
-                if !self.selected_archive_files.is_empty() {
-                    let files = self.selected_archive_files.clone();
-                    if let Err(e) = RarEngine::delete(&arch, &files) {
-                        self.dialog_state = DialogState::Message {
-                            title: "Delete Error".to_string(),
-                            message: e,
-                            is_error: true,
-                        };
-                    } else {
-                        self.open_archive(&arch);
-                    }
+            if let Some(arch) = self.current_archive.clone()
+                && !self.selected_archive_files.is_empty()
+            {
+                let files = self.selected_archive_files.clone();
+                if let Err(e) = RarEngine::delete(&arch, &files) {
+                    self.dialog_state = DialogState::Message {
+                        title: "Delete Error".to_string(),
+                        message: e,
+                        is_error: true,
+                    };
+                } else {
+                    self.open_archive(&arch);
                 }
             }
         } else if !self.selected_local.is_empty() {
@@ -1076,10 +1287,10 @@ impl LinrarApp {
     }
 
     fn trigger_view_file(&mut self) {
-        if self.view_mode == ViewMode::LocalFileSystem {
-            if let Some(first) = self.selected_local.first() {
-                let _ = std::process::Command::new("xdg-open").arg(first).spawn();
-            }
+        if self.view_mode == ViewMode::LocalFileSystem
+            && let Some(first) = self.selected_local.first()
+        {
+            let _ = std::process::Command::new("xdg-open").arg(first).spawn();
         }
     }
 
@@ -1168,10 +1379,22 @@ impl LinrarApp {
                             egui::ComboBox::from_id_salt("comp_level")
                                 .selected_text(format!("{:?}", level))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(level, CompressionLevel::Store, "Store (0)");
-                                    ui.selectable_value(level, CompressionLevel::Fastest, "Fastest (1)");
+                                    ui.selectable_value(
+                                        level,
+                                        CompressionLevel::Store,
+                                        "Store (0)",
+                                    );
+                                    ui.selectable_value(
+                                        level,
+                                        CompressionLevel::Fastest,
+                                        "Fastest (1)",
+                                    );
                                     ui.selectable_value(level, CompressionLevel::Fast, "Fast (2)");
-                                    ui.selectable_value(level, CompressionLevel::Normal, "Normal (3)");
+                                    ui.selectable_value(
+                                        level,
+                                        CompressionLevel::Normal,
+                                        "Normal (3)",
+                                    );
                                     ui.selectable_value(level, CompressionLevel::Good, "Good (4)");
                                     ui.selectable_value(level, CompressionLevel::Best, "Best (5)");
                                 });
@@ -1204,19 +1427,40 @@ impl LinrarApp {
                             if ui.button(RichText::new("OK").strong()).clicked() {
                                 let opts = AddOptions {
                                     compression_level: *level,
-                                    password: if password.is_empty() { None } else { Some(password.clone()) },
+                                    password: if password.is_empty() {
+                                        None
+                                    } else {
+                                        Some(password.clone())
+                                    },
                                     encrypt_headers: *encrypt_headers,
-                                    volume_size: if volume_size.is_empty() { None } else { Some(volume_size.clone()) },
+                                    volume_size: if volume_size.is_empty() {
+                                        None
+                                    } else {
+                                        Some(volume_size.clone())
+                                    },
                                     is_solid: *is_solid,
                                     lock_archive: *is_locked,
-                                    comment: if comment.is_empty() { None } else { Some(comment.clone()) },
+                                    comment: if comment.is_empty() {
+                                        None
+                                    } else {
+                                        Some(comment.clone())
+                                    },
                                 };
 
                                 let arch_path = PathBuf::from(&archive_name);
                                 let res = match format {
-                                    ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::create(&arch_path, sources, &opts),
-                                    ArchiveType::Zip => ZipEngine::create(&arch_path, sources, &opts),
-                                    ArchiveType::TarGz => TarEngine::create(&arch_path, sources, ArchiveType::TarGz, &opts),
+                                    ArchiveType::Rar5 | ArchiveType::Rar4 => {
+                                        RarEngine::create(&arch_path, sources, &opts)
+                                    }
+                                    ArchiveType::Zip => {
+                                        ZipEngine::create(&arch_path, sources, &opts)
+                                    }
+                                    ArchiveType::TarGz => TarEngine::create(
+                                        &arch_path,
+                                        sources,
+                                        ArchiveType::TarGz,
+                                        &opts,
+                                    ),
                                     _ => Err("Unsupported format".to_string()),
                                 };
 
@@ -1249,10 +1493,10 @@ impl LinrarApp {
                         ui.horizontal(|ui| {
                             ui.label("Destination Path:");
                             ui.text_edit_singleline(dest_path);
-                            if ui.button("Browse...").clicked() {
-                                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                                    *dest_path = folder.to_string_lossy().to_string();
-                                }
+                            if ui.button("Browse...").clicked()
+                                && let Some(folder) = rfd::FileDialog::new().pick_folder()
+                            {
+                                *dest_path = folder.to_string_lossy().to_string();
                             }
                         });
 
@@ -1268,15 +1512,38 @@ impl LinrarApp {
                         ui.horizontal(|ui| {
                             if ui.button(RichText::new("Extract").strong()).clicked() {
                                 let arch_type = detect_archive_type(&archive_path);
-                                let pwd = if password.is_empty() { None } else { Some(password.as_str()) };
+                                let pwd = if password.is_empty() {
+                                    None
+                                } else {
+                                    Some(password.as_str())
+                                };
                                 let dest = PathBuf::from(&dest_path);
 
                                 let _ = match arch_type {
-                                    ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::extract(archive_path, &dest, None, pwd),
-                                    ArchiveType::Zip => ZipEngine::extract(archive_path, &dest, None),
-                                    ArchiveType::TarGz => TarEngine::extract(archive_path, &dest, ArchiveType::TarGz, None),
-                                    ArchiveType::TarBz2 => TarEngine::extract(archive_path, &dest, ArchiveType::TarBz2, None),
-                                    ArchiveType::Tar => TarEngine::extract(archive_path, &dest, ArchiveType::Tar, None),
+                                    ArchiveType::Rar5 | ArchiveType::Rar4 => {
+                                        RarEngine::extract(archive_path, &dest, None, pwd)
+                                    }
+                                    ArchiveType::Zip => {
+                                        ZipEngine::extract(archive_path, &dest, None)
+                                    }
+                                    ArchiveType::TarGz => TarEngine::extract(
+                                        archive_path,
+                                        &dest,
+                                        ArchiveType::TarGz,
+                                        None,
+                                    ),
+                                    ArchiveType::TarBz2 => TarEngine::extract(
+                                        archive_path,
+                                        &dest,
+                                        ArchiveType::TarBz2,
+                                        None,
+                                    ),
+                                    ArchiveType::Tar => TarEngine::extract(
+                                        archive_path,
+                                        &dest,
+                                        ArchiveType::Tar,
+                                        None,
+                                    ),
                                     _ => Err("Unsupported format".to_string()),
                                 };
 
@@ -1348,7 +1615,9 @@ impl LinrarApp {
                     .collapsible(false)
                     .default_width(340.0)
                     .show(ctx, |ui| {
-                        ui.heading(RichText::new("Multi-threaded Compression Test").color(accent_color));
+                        ui.heading(
+                            RichText::new("Multi-threaded Compression Test").color(accent_color),
+                        );
                         ui.separator();
 
                         let speed = runner.current_speed_kb_s();
@@ -1418,10 +1687,19 @@ impl LinrarApp {
                     .collapsible(false)
                     .default_width(380.0)
                     .show(ctx, |ui| {
-                        if let Some(tex) = self.icons.as_ref().and_then(|i| i.banner_icon.as_ref()) {
-                            ui.add(egui::Image::from_texture((tex.id(), egui::vec2(360.0, 156.0))));
-                        } else if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
-                            ui.add(egui::Image::from_texture((tex.id(), egui::vec2(64.0, 64.0))));
+                        if let Some(tex) = self.icons.as_ref().and_then(|i| i.banner_icon.as_ref())
+                        {
+                            ui.add(egui::Image::from_texture((
+                                tex.id(),
+                                egui::vec2(360.0, 156.0),
+                            )));
+                        } else if let Some(tex) =
+                            self.icons.as_ref().and_then(|i| i.app_icon.as_ref())
+                        {
+                            ui.add(egui::Image::from_texture((
+                                tex.id(),
+                                egui::vec2(64.0, 64.0),
+                            )));
                         }
                         ui.heading(RichText::new("LinRAR 0.1.0 (Rust Engine)").color(accent_color));
                         ui.label("Modern Universal Archive Manager for Linux");
@@ -1452,27 +1730,42 @@ impl LinrarApp {
                         ui.separator();
 
                         if res.clean {
-                            ui.label(RichText::new("[OK] CLEAN: No viruses or suspicious threats detected!").strong().color(Color32::GREEN));
+                            ui.label(
+                                RichText::new(
+                                    "[OK] CLEAN: No viruses or suspicious threats detected!",
+                                )
+                                .strong()
+                                .color(Color32::GREEN),
+                            );
                         } else {
-                            ui.label(RichText::new(format!("[!] THREATS DETECTED ({}):", res.threats.len())).strong().color(Color32::RED));
-                            egui::Grid::new("threats_grid").striped(true).show(ui, |ui| {
-                                ui.strong("Severity");
-                                ui.strong("Threat");
-                                ui.strong("File");
-                                ui.end_row();
-
-                                for t in &res.threats {
-                                    let col = match t.severity.as_str() {
-                                        "Critical" => Color32::RED,
-                                        "High" => Color32::from_rgb(255, 100, 100),
-                                        _ => Color32::YELLOW,
-                                    };
-                                    ui.label(RichText::new(&t.severity).color(col));
-                                    ui.label(&t.threat_name);
-                                    ui.label(&t.file);
+                            ui.label(
+                                RichText::new(format!(
+                                    "[!] THREATS DETECTED ({}):",
+                                    res.threats.len()
+                                ))
+                                .strong()
+                                .color(Color32::RED),
+                            );
+                            egui::Grid::new("threats_grid")
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.strong("Severity");
+                                    ui.strong("Threat");
+                                    ui.strong("File");
                                     ui.end_row();
-                                }
-                            });
+
+                                    for t in &res.threats {
+                                        let col = match t.severity.as_str() {
+                                            "Critical" => Color32::RED,
+                                            "High" => Color32::from_rgb(255, 100, 100),
+                                            _ => Color32::YELLOW,
+                                        };
+                                        ui.label(RichText::new(&t.severity).color(col));
+                                        ui.label(&t.threat_name);
+                                        ui.label(&t.file);
+                                        ui.end_row();
+                                    }
+                                });
                         }
 
                         ui.separator();
@@ -1534,35 +1827,39 @@ impl LinrarApp {
                             ui.separator();
                             ui.label(format!("Found {} matching entries:", results.len()));
                             ScrollArea::both().max_height(240.0).show(ui, |ui| {
-                                egui::Grid::new("find_results_grid").striped(true).show(ui, |ui| {
-                                    ui.strong("Name");
-                                    ui.strong("Size");
-                                    ui.strong("Container");
-                                    ui.strong("Path");
-                                    ui.end_row();
-
-                                    for m in results.iter() {
-                                        if ui.link(&m.file_name).clicked() {
-                                            open_item = Some(m.full_path.clone());
-                                        }
-                                        ui.label(Self::format_size(m.size));
-                                        ui.label(&m.container);
-                                        ui.monospace(&m.full_path);
+                                egui::Grid::new("find_results_grid")
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong("Name");
+                                        ui.strong("Size");
+                                        ui.strong("Container");
+                                        ui.strong("Path");
                                         ui.end_row();
-                                    }
-                                });
+
+                                        for m in results.iter() {
+                                            if ui.link(&m.file_name).clicked() {
+                                                open_item = Some(m.full_path.clone());
+                                            }
+                                            ui.label(Self::format_size(m.size));
+                                            ui.label(&m.container);
+                                            ui.monospace(&m.full_path);
+                                            ui.end_row();
+                                        }
+                                    });
                             });
                         }
                     });
 
-                if pick_dir {
-                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                        *search_dir = folder;
-                    }
+                if pick_dir && let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                    *search_dir = folder;
                 }
 
                 if do_search {
-                    *results = ArchiveFinder::find_in_directory(&search_dir, pattern, *search_inside_archives);
+                    *results = ArchiveFinder::find_in_directory(
+                        &search_dir,
+                        pattern,
+                        *search_inside_archives,
+                    );
                     *has_searched = true;
                 }
 
@@ -1602,9 +1899,21 @@ impl LinrarApp {
                         ui.label("Select Target Archive Format:");
 
                         ui.radio_value(target_format, ArchiveType::Zip, "ZIP Archive (.zip)");
-                        ui.radio_value(target_format, ArchiveType::TarGz, "GZipped TAR Archive (.tar.gz)");
-                        ui.radio_value(target_format, ArchiveType::TarBz2, "BZip2 TAR Archive (.tar.bz2)");
-                        ui.radio_value(target_format, ArchiveType::Tar, "Standard TAR Archive (.tar)");
+                        ui.radio_value(
+                            target_format,
+                            ArchiveType::TarGz,
+                            "GZipped TAR Archive (.tar.gz)",
+                        );
+                        ui.radio_value(
+                            target_format,
+                            ArchiveType::TarBz2,
+                            "BZip2 TAR Archive (.tar.bz2)",
+                        );
+                        ui.radio_value(
+                            target_format,
+                            ArchiveType::Tar,
+                            "Standard TAR Archive (.tar)",
+                        );
                         ui.radio_value(target_format, ArchiveType::Rar5, "RAR 5.0 Archive (.rar)");
 
                         ui.separator();
@@ -1632,7 +1941,10 @@ impl LinrarApp {
                         Ok(out) => {
                             self.dialog_state = DialogState::Message {
                                 title: "Convert Archive".to_string(),
-                                message: format!("Archive converted successfully!\nSaved to: {}", out.display()),
+                                message: format!(
+                                    "Archive converted successfully!\nSaved to: {}",
+                                    out.display()
+                                ),
                                 is_error: false,
                             };
                             self.refresh_local();
@@ -1682,11 +1994,10 @@ impl LinrarApp {
 
                         ui.separator();
                         ui.horizontal(|ui| {
-                            if result.is_none() {
-                                if ui.button(RichText::new("Start Repair").strong()).clicked() {
+                            if result.is_none()
+                                && ui.button(RichText::new("Start Repair").strong()).clicked() {
                                     do_repair = true;
                                 }
-                            }
                             if ui.button("Close").clicked() {
                                 close_dialog = true;
                             }
@@ -1728,10 +2039,16 @@ impl LinrarApp {
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Format:");
-                            if ui.radio_value(format, ReportFormat::Text, "Plain Text").clicked() {
+                            if ui
+                                .radio_value(format, ReportFormat::Text, "Plain Text")
+                                .clicked()
+                            {
                                 recompute = true;
                             }
-                            if ui.radio_value(format, ReportFormat::Html, "HTML Document").clicked() {
+                            if ui
+                                .radio_value(format, ReportFormat::Html, "HTML Document")
+                                .clicked()
+                            {
                                 recompute = true;
                             }
                             ui.separator();
@@ -1754,14 +2071,17 @@ impl LinrarApp {
                 }
 
                 if do_save {
-                    let ext = if fmt_val == ReportFormat::Html { "html" } else { "txt" };
+                    let ext = if fmt_val == ReportFormat::Html {
+                        "html"
+                    } else {
+                        "txt"
+                    };
                     if let Some(save_path) = rfd::FileDialog::new()
-                        .set_file_name(&format!("report.{}", ext))
+                        .set_file_name(format!("report.{}", ext))
                         .save_file()
+                        && let Err(e) = std::fs::write(&save_path, content.as_bytes())
                     {
-                        if let Err(e) = std::fs::write(&save_path, content.as_bytes()) {
-                            eprintln!("Save report error: {}", e);
-                        }
+                        eprintln!("Save report error: {}", e);
                     }
                 }
             }
@@ -1781,7 +2101,13 @@ impl LinrarApp {
                     .collapsible(false)
                     .default_width(340.0)
                     .show(ctx, |ui| {
-                        ui.label(format!("Archive: {}", archive_path.file_name().unwrap_or_default().to_string_lossy()));
+                        ui.label(format!(
+                            "Archive: {}",
+                            archive_path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                        ));
                         ui.separator();
                         ui.label("Add data recovery record to repair damaged archives.");
                         ui.horizontal(|ui| {
@@ -1792,7 +2118,10 @@ impl LinrarApp {
 
                         ui.separator();
                         ui.horizontal(|ui| {
-                            if ui.button(RichText::new("Add Protection").strong()).clicked() {
+                            if ui
+                                .button(RichText::new("Add Protection").strong())
+                                .clicked()
+                            {
                                 do_protect = true;
                             }
                             if ui.button("Cancel").clicked() {
@@ -1806,7 +2135,10 @@ impl LinrarApp {
                         Ok(_) => {
                             self.dialog_state = DialogState::Message {
                                 title: "Protect Archive".to_string(),
-                                message: format!("Recovery record ({}) added successfully!", pct_clone),
+                                message: format!(
+                                    "Recovery record ({}) added successfully!",
+                                    pct_clone
+                                ),
                                 is_error: false,
                             };
                             if let Some(cur) = self.current_archive.clone() {
@@ -1876,7 +2208,11 @@ impl LinrarApp {
                 }
             }
 
-            DialogState::Message { title, message, is_error } => {
+            DialogState::Message {
+                title,
+                message,
+                is_error,
+            } => {
                 let text_color = if *is_error {
                     Color32::RED
                 } else if is_light_theme {
@@ -1905,4 +2241,3 @@ impl LinrarApp {
         }
     }
 }
-
