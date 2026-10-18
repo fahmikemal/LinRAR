@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["LinRAR Team"]
 license = "MIT"
-description = "High-performance cleanroom WinRAR reconstruction for Linux in pure Rust"
+description = "Modern high-performance universal archive manager for Linux in pure Rust"
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }

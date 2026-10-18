@@ -1408,12 +1408,11 @@ impl LinrarApp {
                             ui.add(egui::Image::from_texture((tex.id(), egui::vec2(64.0, 64.0))));
                         }
                         ui.heading(RichText::new("LinRAR 0.1.0 (Rust Engine)").color(accent_color));
-                        ui.label("Modern Cleanroom WinRAR Reconstruction for Linux");
+                        ui.label("Modern Universal Archive Manager for Linux");
                         ui.separator();
                         ui.label("• Version: 0.1.0");
                         ui.label("• License: MIT (Open Source)");
                         ui.label("• Architecture: Pure Rust 2024 + Native Engine");
-                        ui.label("• Methodology: ArtCraft-style Cleanroom REA Reconstruction");
                         ui.label("• UI Toolkit: eframe / egui (Wayland & X11 Native)");
                         ui.label("• Formats: RAR 5.0, RAR 4.x, ZIP, TAR.GZ, TAR.BZ2, 7z");
                         ui.separator();

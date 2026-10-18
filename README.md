@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Modern, High-Performance Cleanroom WinRAR Reconstruction for Linux</strong>
+  <strong>Modern, High-Performance Universal Archive Manager for Linux</strong>
   <br>
   <em>Built in 100% Pure Safe Rust 2024 with Native Wayland/X11 GUI & Powerful CLI</em>
 </p>
@@ -20,7 +20,7 @@
 
 ## Overview
 
-**LinRAR** is an open-source, modern Linux reconstruction of WinRAR. Designed for speed, security, and fidelity to familiar archive management workflows, LinRAR eliminates the need for Wine or cumbersome command-line wrappers by providing both a high-fidelity **GUI** (powered by `eframe` / `egui`) and an ergonomic, scriptable **CLI**.
+**LinRAR** is an independent, high-performance, open-source universal archive manager designed specifically for Linux. Built from the ground up in pure Rust 2024, LinRAR provides a fast, secure, and native archiving experience for both desktop users and power users through an intuitive **GUI** (powered by `eframe` / `egui`) and an ergonomic, scriptable **CLI**.
 
 LinRAR features full format interoperability (RAR4, RAR5, ZIP, TAR.GZ, TAR.BZ2, 7z), built-in recovery records, archive locking, damaged archive repair, multi-threaded hardware benchmarking, built-in heuristic threat scanning with optional ClamAV daemon integration, and custom theme modes (Dark & Light).
 
@@ -28,7 +28,7 @@ LinRAR features full format interoperability (RAR4, RAR5, ZIP, TAR.GZ, TAR.BZ2, 
 
 ## Key Features
 
-### 1. WinRAR Feature Parity
+### 1. Comprehensive Archive Management
 - **Archive Extraction & Creation**: Support for `.rar`, `.zip`, `.tar.gz`, `.tar.bz2`, and `.7z`.
 - **Solid Archives**: Maximize compression ratio for groups of similar files.
 - **Recovery Records & Damaged Archive Repair**: Protect archives against silent bit rot or byte corruptions and automatically reconstruct damaged archives.

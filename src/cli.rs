@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use crate::types::CompressionLevel;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "linrar", author = "LinRAR Team", version = "0.1.0", about = "Modern WinRAR Cleanroom Reconstruction for Linux in Pure Rust (MIT License)")]
+#[command(name = "linrar", author = "LinRAR Team", version = "0.1.0", about = "Modern Universal Archive Manager for Linux in Pure Rust (MIT License)")]
 pub struct Cli {
     #[arg(short = 'g', long = "gui", help = "Launch LinRAR graphical user interface")]
     pub gui: bool,

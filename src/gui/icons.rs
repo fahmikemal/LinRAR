@@ -49,7 +49,7 @@ impl IconManager {
             refresh_icon: Self::load_texture_from_bytes(ctx, "refresh_icon", include_bytes!("../../assets/icons/refresh.png")),
             lock_icon: Self::load_texture_from_bytes(ctx, "lock_icon", include_bytes!("../../assets/icons/lock.png")),
             comment_icon: Self::load_texture_from_bytes(ctx, "comment_icon", include_bytes!("../../assets/icons/comment.png")),
-            banner_icon: Self::load_texture_from_bytes(ctx, "banner_icon", include_bytes!("../../assets/icons/winrar_banner.png")),
+            banner_icon: Self::load_texture_from_bytes(ctx, "banner_icon", include_bytes!("../../assets/icons/linrar_banner.png")),
         }
     }
 
