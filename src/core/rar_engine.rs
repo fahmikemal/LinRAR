@@ -11,14 +11,12 @@ pub struct RarEngine;
 impl RarEngine {
     pub fn get_rar_bin() -> Option<PathBuf> {
         let mut candidates = vec![
-            PathBuf::from("linrar_app/bin/rar"),
             PathBuf::from("/usr/local/bin/rar"),
             PathBuf::from("/usr/bin/rar"),
         ];
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("linrar_app/bin/rar"));
                 candidates.push(parent.join("bin/rar"));
             }
         }
@@ -43,14 +41,12 @@ impl RarEngine {
 
     pub fn get_unrar_bin() -> Option<PathBuf> {
         let mut candidates = vec![
-            PathBuf::from("linrar_app/bin/unrar"),
             PathBuf::from("/usr/local/bin/unrar"),
             PathBuf::from("/usr/bin/unrar"),
         ];
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("linrar_app/bin/unrar"));
                 candidates.push(parent.join("bin/unrar"));
             }
         }

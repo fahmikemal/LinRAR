@@ -2,6 +2,10 @@
 /extracted
 /rar
 /unrar
+/linrar_app
+/tests
+linrar.py
+generate_icons.py
 *.rartemp
 *.tar.gz
 *.exe
@@ -11,3 +15,9 @@ payload.rar
 __pycache__/
 *.pyc
 .DS_Store
+assets/png/
+assets/*Gemini*
+assets/*raw*
+assets/*winrar*
+assets/icons/*winrar*
+assets/icons/*hero*

@@ -12,21 +12,21 @@ mkdir -p "$HOME/.local/share/applications"
 ln -sf "$SCRIPT_DIR/linrar" "$HOME/.local/bin/linrar"
 
 # Install icons in all standard resolutions for GNOME / Ubuntu Dock
-SIZES=(16 24 32 48 64 128 256)
+SIZES=(16 24 32 48 64 128 256 512)
 for SZ in "${SIZES[@]}"; do
     TARGET_DIR="$HOME/.local/share/icons/hicolor/${SZ}x${SZ}/apps"
     mkdir -p "$TARGET_DIR"
-    SRC_ICON="$SCRIPT_DIR/linrar_app/assets/icons/hicolor/${SZ}x${SZ}/apps/linrar.png"
+    SRC_ICON="$SCRIPT_DIR/assets/icons/hicolor/${SZ}x${SZ}/apps/linrar.png"
     if [ -f "$SRC_ICON" ]; then
         cp "$SRC_ICON" "$TARGET_DIR/linrar.png"
     else
-        cp "$SCRIPT_DIR/linrar_app/assets/icons/linrar.png" "$TARGET_DIR/linrar.png"
+        cp "$SCRIPT_DIR/assets/icons/linrar.png" "$TARGET_DIR/linrar.png"
     fi
 done
 
 # Also put in pixmaps for legacy fallbacks
 mkdir -p "$HOME/.local/share/pixmaps"
-cp "$SCRIPT_DIR/linrar_app/assets/icons/linrar.png" "$HOME/.local/share/pixmaps/linrar.png"
+cp "$SCRIPT_DIR/assets/icons/linrar.png" "$HOME/.local/share/pixmaps/linrar.png"
 
 # Install .desktop entry with StartupWMClass to guarantee dock matching
 cat > "$HOME/.local/share/applications/linrar.desktop" <<EOF

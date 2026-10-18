@@ -155,20 +155,19 @@ linrar b
 ```
 linrar/
 ├── assets/
-│   ├── icons/            # App icons, toolbar icons, and about banners
-│   └── linrar_banner.jpg # LinRAR high-res cover artwork
-├── linrar_app/           # Subproject assets and configurations
+│   ├── icons/                 # App icons, toolbar icons, and about banner
+│   └── linrar_banner_dark.png # High-resolution project banner
 ├── src/
-│   ├── archive/          # Archive format parsers and writers (RAR, ZIP, TAR, 7z)
-│   ├── cli/              # CLI argument parser and command handlers
-│   ├── engine/           # Pure Rust compression, CRC32, recovery, and repair engines
-│   ├── gui/              # eframe/egui GUI application, dialogs, and themes
-│   ├── security/         # Heuristics scanner and ClamAV integration
-│   ├── lib.rs            # Core library entry point
-│   └── main.rs           # Application executable entry point
-├── install.sh            # Automated installation script
-├── Cargo.toml            # Rust dependencies and package configuration
-└── LICENSE               # MIT License
+│   ├── core/                  # Engines (RAR, ZIP, TAR), repair, scanner, benchmark, converter
+│   ├── gui/                   # Native GUI application (eframe/egui), dialogs, and themes
+│   ├── cli.rs                 # CLI command parsing and handlers
+│   ├── types.rs               # Common data structures and archive types
+│   ├── lib.rs                 # Core library export
+│   └── main.rs                # Executable entry point
+├── install.sh                 # One-click desktop installer script
+├── linrar.desktop             # Linux XDG desktop entry
+├── Cargo.toml                 # Cargo package configuration and dependencies
+└── LICENSE                    # MIT License
 ```
 
 ---
