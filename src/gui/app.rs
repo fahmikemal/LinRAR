@@ -275,14 +275,14 @@ impl LinrarApp {
         let screen_rect = ctx.viewport_rect();
         let margin = 5.0;
         if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
+            // Completely exclude titlebar buttons area from window resize grab
+            if pos.x >= screen_rect.right() - 130.0 && pos.y <= screen_rect.top() + 32.0 {
+                return;
+            }
+
             let on_left = pos.x >= screen_rect.left() && pos.x <= screen_rect.left() + margin;
             let on_right = pos.x >= screen_rect.right() - margin && pos.x <= screen_rect.right();
-            // Don't trigger North resize over the titlebar buttons (approx 120px from right) unless it's the corner
-            let over_buttons =
-                pos.x >= screen_rect.right() - 120.0 && pos.y <= screen_rect.top() + 28.0;
-            let on_top = pos.y >= screen_rect.top()
-                && pos.y <= screen_rect.top() + margin
-                && (!over_buttons || on_right);
+            let on_top = pos.y >= screen_rect.top() && pos.y <= screen_rect.top() + margin;
             let on_bottom = pos.y >= screen_rect.bottom() - margin && pos.y <= screen_rect.bottom();
 
             let resize_dir = match (on_left, on_right, on_top, on_bottom) {
@@ -404,152 +404,123 @@ impl eframe::App for LinrarApp {
         }
 
         // Custom CSD Title Bar (Logo, Wordmark, Draggable Area, and Window Controls)
-        egui::Panel::top("custom_title_bar").show(ui, |ui| {
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
-                if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
-                    ui.add(egui::Image::from_texture((
-                        tex.id(),
-                        egui::vec2(18.0, 18.0),
-                    )));
-                }
-                let brand_text = match &self.current_archive {
-                    Some(arch) => format!(
-                        "LinRAR - {}",
-                        arch.file_name().unwrap_or_default().to_string_lossy()
-                    ),
-                    None => {
-                        if self.view_mode == ViewMode::LocalFileSystem {
-                            let dir_name = self
-                                .current_dir
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy();
-                            if dir_name.is_empty() {
-                                "LinRAR".to_string()
-                            } else {
-                                format!("LinRAR - {}", dir_name)
-                            }
-                        } else {
-                            "LinRAR".to_string()
-                        }
-                    }
-                };
+        egui::Panel::top("custom_title_bar")
+            .exact_size(32.0)
+            .show(ui, |ui| {
+                let title_bar_rect = ui.max_rect();
 
-                let title_resp = ui.add(
-                    egui::Label::new(
-                        RichText::new(brand_text)
-                            .strong()
-                            .size(13.0)
-                            .color(self.accent_color()),
-                    )
-                    .sense(egui::Sense::click_and_drag()),
+                // 1. Drag and double-click interaction on the whole title bar
+                let title_bar_response = ui.interact(
+                    title_bar_rect,
+                    egui::Id::unique("custom_title_bar_drag_surface"),
+                    egui::Sense::click_and_drag(),
                 );
-                if title_resp.dragged() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-                if title_resp.double_clicked() {
+                if title_bar_response.double_clicked() {
                     let is_max = ui.input(|i| i.viewport().maximized.unwrap_or(false));
                     ui.ctx()
                         .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max));
                 }
+                if title_bar_response.drag_started_by(egui::PointerButton::Primary) {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
 
-                // Window controls aligned on the right
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
-
-                    // Close button
-                    let (close_rect, close_resp) =
-                        ui.allocate_exact_size(Vec2::new(38.0, 24.0), egui::Sense::click());
-                    if close_resp.hovered() {
-                        ui.painter()
-                            .rect_filled(close_rect, 2.0, Color32::from_rgb(220, 50, 50));
-                        ui.painter().text(
-                            close_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "✕",
-                            egui::FontId::proportional(12.0),
-                            Color32::WHITE,
-                        );
-                    } else {
-                        ui.painter().text(
-                            close_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "✕",
-                            egui::FontId::proportional(12.0),
-                            ui.visuals().text_color(),
-                        );
+                // 2. Left side: App Logo and Title text
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                    if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
+                        ui.add(egui::Image::from_texture((
+                            tex.id(),
+                            egui::vec2(18.0, 18.0),
+                        )));
                     }
-                    if close_resp.clicked() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-
-                    // Maximize / Restore button
-                    let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
-                    let (max_rect, max_resp) =
-                        ui.allocate_exact_size(Vec2::new(36.0, 24.0), egui::Sense::click());
-                    if max_resp.hovered() {
-                        let hover_bg = if self.theme_mode == ThemeMode::Dark {
-                            Color32::from_white_alpha(35)
-                        } else {
-                            Color32::from_black_alpha(25)
-                        };
-                        ui.painter().rect_filled(max_rect, 2.0, hover_bg);
-                    }
-                    let max_icon = if is_maximized { "🗗" } else { "🗖" };
-                    ui.painter().text(
-                        max_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        max_icon,
-                        egui::FontId::proportional(12.0),
-                        ui.visuals().text_color(),
+                    let brand_text = match &self.current_archive {
+                        Some(arch) => format!(
+                            "LinRAR - {}",
+                            arch.file_name().unwrap_or_default().to_string_lossy()
+                        ),
+                        None => {
+                            if self.view_mode == ViewMode::LocalFileSystem {
+                                let dir_name = self
+                                    .current_dir
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy();
+                                if dir_name.is_empty() {
+                                    "LinRAR".to_string()
+                                } else {
+                                    format!("LinRAR - {}", dir_name)
+                                }
+                            } else {
+                                "LinRAR".to_string()
+                            }
+                        }
+                    };
+                    ui.label(
+                        RichText::new(brand_text)
+                            .strong()
+                            .size(13.0)
+                            .color(self.accent_color()),
                     );
-                    if max_resp.clicked() {
-                        ui.ctx()
-                            .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
-                    }
-
-                    // Minimize button
-                    let (min_rect, min_resp) =
-                        ui.allocate_exact_size(Vec2::new(36.0, 24.0), egui::Sense::click());
-                    if min_resp.hovered() {
-                        let hover_bg = if self.theme_mode == ThemeMode::Dark {
-                            Color32::from_white_alpha(35)
-                        } else {
-                            Color32::from_black_alpha(25)
-                        };
-                        ui.painter().rect_filled(min_rect, 2.0, hover_bg);
-                    }
-                    ui.painter().text(
-                        min_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "—",
-                        egui::FontId::proportional(12.0),
-                        ui.visuals().text_color(),
-                    );
-                    if min_resp.clicked() {
-                        ui.ctx()
-                            .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                    }
-
-                    // Middle draggable area spanning between the title and controls
-                    let available_w = ui.available_width().max(0.0);
-                    let (_drag_rect, drag_resp) = ui.allocate_exact_size(
-                        Vec2::new(available_w, 24.0),
-                        egui::Sense::click_and_drag(),
-                    );
-                    if drag_resp.dragged() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                    }
-                    if drag_resp.double_clicked() {
-                        ui.ctx()
-                            .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
-                    }
                 });
+
+                // 3. Right side: Window controls (drawn on top of the drag surface with higher z-order)
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .max_rect(title_bar_rect)
+                        .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                    |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 0.0);
+
+                        // Close button
+                        let is_close_hovered = ui.rect_contains_pointer(egui::Rect::from_min_size(
+                            egui::pos2(title_bar_rect.right() - 40.0, title_bar_rect.top()),
+                            egui::vec2(40.0, 32.0),
+                        ));
+                        let close_btn = if is_close_hovered {
+                            egui::Button::new(
+                                RichText::new("✕").size(12.0).strong().color(Color32::WHITE),
+                            )
+                            .fill(Color32::from_rgb(220, 50, 50))
+                            .min_size(Vec2::new(40.0, 26.0))
+                        } else {
+                            egui::Button::new(RichText::new("✕").size(12.0).strong())
+                                .min_size(Vec2::new(40.0, 26.0))
+                        };
+
+                        if ui.add(close_btn).on_hover_text("Tutup (Close)").clicked() {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                            std::process::exit(0);
+                        }
+
+                        // Maximize / Restore button
+                        let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+                        let max_text = if is_maximized { "🗗" } else { "🗖" };
+                        let max_tip = if is_maximized {
+                            "Kembalikan (Restore)"
+                        } else {
+                            "Perbesar (Maximize)"
+                        };
+                        let max_btn = egui::Button::new(RichText::new(max_text).size(12.0))
+                            .min_size(Vec2::new(36.0, 26.0));
+                        if ui.add(max_btn).on_hover_text(max_tip).clicked() {
+                            ui.ctx()
+                                .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                        }
+
+                        // Minimize button
+                        let min_btn = egui::Button::new(RichText::new("—").size(12.0).strong())
+                            .min_size(Vec2::new(36.0, 26.0));
+                        if ui
+                            .add(min_btn)
+                            .on_hover_text("Kecilkan (Minimize)")
+                            .clicked()
+                        {
+                            ui.ctx()
+                                .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+                    },
+                );
             });
-            ui.add_space(2.0);
-        });
 
         // Top Menu Bar
         egui::Panel::top("top_menu_bar").show(ui, |ui| {
