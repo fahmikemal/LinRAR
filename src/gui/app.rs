@@ -327,10 +327,8 @@ impl eframe::App for LinrarApp {
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::B)) {
             self.dialog_state = DialogState::new_benchmark();
         }
-        if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::I))
-            && let Some(info) = &self.archive_info
-        {
-            self.dialog_state = DialogState::ArchiveInfo(info.clone());
+        if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::I)) {
+            self.trigger_info_dialog();
         }
         if ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::R)) {
             self.trigger_report_dialog();
@@ -415,9 +413,7 @@ impl eframe::App for LinrarApp {
                     }
                     if ui.button("Show archive information (Alt+I)").clicked() {
                         ui.close();
-                        if let Some(info) = &self.archive_info {
-                            self.dialog_state = DialogState::ArchiveInfo(info.clone());
-                        }
+                        self.trigger_info_dialog();
                     }
                 });
 
@@ -642,9 +638,8 @@ impl eframe::App for LinrarApp {
                         false,
                     )
                     .clicked()
-                    && let Some(info) = &self.archive_info
                 {
-                    self.dialog_state = DialogState::ArchiveInfo(info.clone());
+                    self.trigger_info_dialog();
                 }
 
                 if self
@@ -1190,6 +1185,116 @@ impl LinrarApp {
         }
     }
 
+    pub fn trigger_info_dialog(&mut self) {
+        match self.view_mode {
+            ViewMode::VirtualArchive => {
+                if let Some(info) = &self.archive_info {
+                    self.dialog_state = DialogState::ArchiveInfo(info.clone());
+                } else if let Some(path) = &self.current_archive {
+                    let arch_type = detect_archive_type(path);
+                    let result = match arch_type {
+                        ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(path),
+                        ArchiveType::Zip => ZipEngine::read_entries(path),
+                        ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
+                            TarEngine::read_entries(path, arch_type)
+                        }
+                        _ => Err("Unsupported archive format".to_string()),
+                    };
+                    match result {
+                        Ok((info, _)) => {
+                            self.archive_info = Some(info.clone());
+                            self.dialog_state = DialogState::ArchiveInfo(info);
+                        }
+                        Err(e) => {
+                            self.dialog_state = DialogState::Message {
+                                title: "Archive Information".to_string(),
+                                message: format!("Could not read archive details: {}", e),
+                                is_error: true,
+                            };
+                        }
+                    }
+                } else {
+                    self.dialog_state = DialogState::Message {
+                        title: "Information".to_string(),
+                        message: "No archive is currently open.".to_string(),
+                        is_error: false,
+                    };
+                }
+            }
+            ViewMode::LocalFileSystem => {
+                if let Some(selected_path) = self.selected_local.first() {
+                    if is_supported_archive(selected_path) {
+                        let arch_type = detect_archive_type(selected_path);
+                        let result = match arch_type {
+                            ArchiveType::Rar5 | ArchiveType::Rar4 => {
+                                RarEngine::read_entries(selected_path)
+                            }
+                            ArchiveType::Zip => ZipEngine::read_entries(selected_path),
+                            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
+                                TarEngine::read_entries(selected_path, arch_type)
+                            }
+                            _ => Err("Unsupported archive format".to_string()),
+                        };
+                        match result {
+                            Ok((info, _)) => {
+                                self.dialog_state = DialogState::ArchiveInfo(info);
+                            }
+                            Err(e) => {
+                                self.dialog_state = DialogState::Message {
+                                    title: "Archive Information".to_string(),
+                                    message: format!("Could not read archive info: {}", e),
+                                    is_error: true,
+                                };
+                            }
+                        }
+                    } else if let Ok(meta) = fs::metadata(selected_path) {
+                        let kind = if meta.is_dir() { "Directory" } else { "File" };
+                        let name = selected_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy();
+                        let size_str = if meta.is_dir() {
+                            "N/A (Directory)".to_string()
+                        } else {
+                            Self::format_size(meta.len())
+                        };
+                        let read_only = if meta.permissions().readonly() {
+                            "Yes"
+                        } else {
+                            "No"
+                        };
+                        self.dialog_state = DialogState::Message {
+                            title: format!("{} Information", kind),
+                            message: format!(
+                                "Name: {}\nType: {}\nPath: {}\nSize: {}\nRead-only: {}",
+                                name,
+                                kind,
+                                selected_path.display(),
+                                size_str,
+                                read_only
+                            ),
+                            is_error: false,
+                        };
+                    } else {
+                        self.dialog_state = DialogState::Message {
+                            title: "Information".to_string(),
+                            message: "Please select or open an archive to view its information."
+                                .to_string(),
+                            is_error: false,
+                        };
+                    }
+                } else {
+                    self.dialog_state = DialogState::Message {
+                        title: "Information".to_string(),
+                        message: "Please open an archive or select a file to view its information."
+                            .to_string(),
+                        is_error: false,
+                    };
+                }
+            }
+        }
+    }
+
     fn trigger_protect_dialog(&mut self) {
         let arch = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
@@ -1558,14 +1663,33 @@ impl LinrarApp {
             }
 
             DialogState::ArchiveInfo(info) => {
+                let mut is_open = true;
                 egui::Window::new("Archive Information")
+                    .open(&mut is_open)
                     .pivot(egui::Align2::CENTER_CENTER)
                     .default_pos(center)
                     .resizable(false)
                     .collapsible(false)
-                    .default_width(360.0)
+                    .default_width(380.0)
                     .show(ctx, |ui| {
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            close_dialog = true;
+                        }
+
                         egui::Grid::new("info_grid").striped(true).show(ui, |ui| {
+                            ui.label("Archive Name:");
+                            ui.strong(info.path.file_name().unwrap_or_default().to_string_lossy());
+                            ui.end_row();
+
+                            ui.label("Location:");
+                            ui.monospace(
+                                info.path
+                                    .parent()
+                                    .map(|p| p.display().to_string())
+                                    .unwrap_or_default(),
+                            );
+                            ui.end_row();
+
                             ui.label("Archive Format:");
                             ui.monospace(info.archive_type.name());
                             ui.end_row();
@@ -1597,6 +1721,12 @@ impl LinrarApp {
                             ui.label("Locked:");
                             ui.monospace(if info.is_locked { "Yes" } else { "No" });
                             ui.end_row();
+
+                            if let Some(cmt) = &info.comment {
+                                ui.label("Comment:");
+                                ui.label(cmt);
+                                ui.end_row();
+                            }
                         });
 
                         ui.separator();
@@ -1604,6 +1734,10 @@ impl LinrarApp {
                             close_dialog = true;
                         }
                     });
+
+                if !is_open {
+                    close_dialog = true;
+                }
             }
 
             DialogState::Benchmark { runner } => {
