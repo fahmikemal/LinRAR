@@ -62,14 +62,14 @@ jobs:
   security-audit:
     name: Security Vulnerability Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run RustSec Advisory Audit
-        uses: rustsec/audit-check-action@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Audit Rust Dependencies
+        uses: actions-rust-lang/audit@v1
 
   test:
     name: Unit & Integration Tests
