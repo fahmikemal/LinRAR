@@ -259,6 +259,24 @@ impl eframe::App for LinrarApp {
             }
         }
 
+        // Set Dynamic Window Title for Wayland / X11 (e.g. "payload.rar - LinRAR")
+        let window_title = match &self.current_archive {
+            Some(arch) => format!("{} - LinRAR", arch.file_name().unwrap_or_default().to_string_lossy()),
+            None => {
+                if self.view_mode == ViewMode::LocalFileSystem {
+                    let dir_name = self.current_dir.file_name().unwrap_or_default().to_string_lossy();
+                    if dir_name.is_empty() {
+                        "LinRAR".to_string()
+                    } else {
+                        format!("{} - LinRAR", dir_name)
+                    }
+                } else {
+                    "LinRAR".to_string()
+                }
+            }
+        };
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(window_title));
+
         // Global Keyboard Shortcuts
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::A)) {
             self.trigger_add_dialog();
@@ -427,6 +445,17 @@ impl eframe::App for LinrarApp {
                     if ui.button("About LinRAR").clicked() {
                         ui.close();
                         self.dialog_state = DialogState::About;
+                    }
+                });
+
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let brand_text = match &self.current_archive {
+                        Some(arch) => format!("{} - LinRAR", arch.file_name().unwrap_or_default().to_string_lossy()),
+                        None => "LinRAR".to_string(),
+                    };
+                    ui.label(RichText::new(brand_text).strong().size(12.0).color(self.accent_color()));
+                    if let Some(tex) = self.icons.as_ref().and_then(|i| i.app_icon.as_ref()) {
+                        ui.add(egui::Image::from_texture((tex.id(), egui::vec2(16.0, 16.0))));
                     }
                 });
             });
