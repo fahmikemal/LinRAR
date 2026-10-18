@@ -8,6 +8,7 @@ use crate::core::finder::ArchiveFinder;
 use crate::core::rar_engine::RarEngine;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::VirusScanner;
+use crate::core::sevenzip_engine::SevenZipEngine;
 use crate::core::smart_extract::SmartExtractor;
 use crate::core::tar_engine::TarEngine;
 use crate::core::volume::VolumeManager;
@@ -41,17 +42,20 @@ fn test_magic_detection() {
     let targz_path = tmp.path().join("test.tar.gz");
     let tarxz_path = tmp.path().join("test.tar.xz");
     let tarzst_path = tmp.path().join("test.tar.zst");
+    let sevenz_path = tmp.path().join("test.7z");
 
     let opts = AddOptions::default();
     ZipEngine::create(&zip_path, &sources, &opts).unwrap();
     TarEngine::create(&targz_path, &sources, ArchiveType::TarGz, &opts).unwrap();
     TarEngine::create(&tarxz_path, &sources, ArchiveType::TarXz, &opts).unwrap();
     TarEngine::create(&tarzst_path, &sources, ArchiveType::TarZst, &opts).unwrap();
+    SevenZipEngine::create(&sevenz_path, &sources, &opts).unwrap();
 
     assert_eq!(detect_archive_type(&zip_path), ArchiveType::Zip);
     assert_eq!(detect_archive_type(&targz_path), ArchiveType::TarGz);
     assert_eq!(detect_archive_type(&tarxz_path), ArchiveType::TarXz);
     assert_eq!(detect_archive_type(&tarzst_path), ArchiveType::TarZst);
+    assert_eq!(detect_archive_type(&sevenz_path), ArchiveType::SevenZip);
 }
 
 #[test]
@@ -608,6 +612,104 @@ fn test_tar_modern_conversion() {
     // Extract converted .tar.xz to verify data preserved 100%
     let ext_dir = tmp.path().join("converted_xz_out");
     TarEngine::extract(&converted_xz, &ext_dir, ArchiveType::TarXz, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(ext_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+}
+
+#[test]
+fn test_sevenzip_lifecycle() {
+    let (tmp, sources) = setup_test_files();
+    let sevenz_path = tmp.path().join("test_lifecycle.7z");
+    let extract_dir = tmp.path().join("sevenz_out");
+
+    let opts = AddOptions {
+        compression_level: CompressionLevel::Normal,
+        ..Default::default()
+    };
+    SevenZipEngine::create(&sevenz_path, &sources, &opts).unwrap();
+    assert!(sevenz_path.exists());
+
+    // Verify magic bytes detection
+    assert_eq!(detect_archive_type(&sevenz_path), ArchiveType::SevenZip);
+
+    // Test integrity
+    assert!(SevenZipEngine::test(&sevenz_path, None).unwrap());
+
+    // Read entries
+    let (info, entries) = SevenZipEngine::read_entries(&sevenz_path, None).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::SevenZip);
+    assert!(entries.iter().any(|e| e.name == "hello.txt"));
+    assert!(entries.iter().any(|e| e.name == "data.json"));
+
+    // Extract
+    SevenZipEngine::extract(&sevenz_path, &extract_dir, None, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("subfolder").join("nested.txt")).unwrap(),
+        "Nested content for directory testing"
+    );
+}
+
+#[test]
+fn test_sevenzip_aes_encryption() {
+    let (tmp, sources) = setup_test_files();
+    let sevenz_path = tmp.path().join("encrypted.7z");
+    let extract_dir = tmp.path().join("sevenz_enc_out");
+    let pwd = "LinRAR_7z_SecretPassword";
+
+    let opts = AddOptions {
+        compression_level: CompressionLevel::Fast,
+        password: Some(pwd.to_string()),
+        encrypt_headers: true,
+        ..Default::default()
+    };
+    SevenZipEngine::create(&sevenz_path, &sources, &opts).unwrap();
+    assert!(sevenz_path.exists());
+
+    // Read entries with password
+    let (info, entries) = SevenZipEngine::read_entries(&sevenz_path, Some(pwd)).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::SevenZip);
+    assert!(entries.iter().any(|e| e.encrypted));
+
+    // Testing with wrong password should fail
+    assert!(SevenZipEngine::test(&sevenz_path, Some("wrong_password")).is_err());
+
+    // Testing with correct password should succeed
+    assert!(SevenZipEngine::test(&sevenz_path, Some(pwd)).unwrap());
+
+    // Extracting with wrong password should fail
+    let bad_dir = tmp.path().join("bad_7z_out");
+    assert!(SevenZipEngine::extract(&sevenz_path, &bad_dir, None, Some("wrong_password")).is_err());
+
+    // Extracting with correct password should succeed and verify content
+    SevenZipEngine::extract(&sevenz_path, &extract_dir, None, Some(pwd)).unwrap();
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+}
+
+#[test]
+fn test_sevenzip_conversion() {
+    let (tmp, sources) = setup_test_files();
+    let zip_src = tmp.path().join("convert_src_for_7z.zip");
+    ZipEngine::create(&zip_src, &sources, &AddOptions::default()).unwrap();
+
+    // Convert .zip -> .7z
+    let converted_7z =
+        ArchiveConverter::convert(&zip_src, ArchiveType::SevenZip, &AddOptions::default()).unwrap();
+
+    assert!(converted_7z.exists());
+    assert_eq!(detect_archive_type(&converted_7z), ArchiveType::SevenZip);
+
+    // Extract converted .7z to verify data preserved 100%
+    let ext_dir = tmp.path().join("converted_7z_out");
+    SevenZipEngine::extract(&converted_7z, &ext_dir, None, None).unwrap();
     assert_eq!(
         fs::read_to_string(ext_dir.join("hello.txt")).unwrap(),
         "Hello from LinRAR Pure Rust!"

@@ -9,6 +9,7 @@ use crate::core::finder::ArchiveFinder;
 use crate::core::rar_engine::RarEngine;
 use crate::core::repair::ArchiveRepair;
 use crate::core::report::{ArchiveReport, ReportFormat};
+use crate::core::sevenzip_engine::SevenZipEngine;
 use crate::core::tar_engine::TarEngine;
 use crate::core::zip_engine::ZipEngine;
 use crate::gui::dialogs::DialogState;
@@ -157,6 +158,7 @@ impl LinrarApp {
             | ArchiveType::TarBz2
             | ArchiveType::TarXz
             | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
+            ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
             _ => Err("Unsupported archive format".to_string()),
         };
 
@@ -1385,6 +1387,7 @@ impl LinrarApp {
                     | ArchiveType::TarXz
                     | ArchiveType::TarZst
                     | ArchiveType::Tar => TarEngine::test(&path, arch_type),
+                    ArchiveType::SevenZip => SevenZipEngine::test(&path, None),
                     _ => RarEngine::test(&path),
                 };
 
@@ -1524,6 +1527,7 @@ impl LinrarApp {
                         | ArchiveType::TarBz2
                         | ArchiveType::TarXz
                         | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
+                        ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
                         _ => Err("Unsupported archive format".to_string()),
                     };
                     match result {
@@ -1562,6 +1566,9 @@ impl LinrarApp {
                             | ArchiveType::TarXz
                             | ArchiveType::TarZst => {
                                 TarEngine::read_entries(selected_path, arch_type)
+                            }
+                            ArchiveType::SevenZip => {
+                                SevenZipEngine::read_entries(selected_path, None)
                             }
                             _ => Err("Unsupported archive format".to_string()),
                         };
@@ -1792,6 +1799,9 @@ impl LinrarApp {
                         | ArchiveType::TarXz
                         | ArchiveType::TarZst => {
                             TarEngine::extract(arch, &temp_dir, arch_type, Some(files_slice))
+                        }
+                        ArchiveType::SevenZip => {
+                            SevenZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
                         }
                         _ => RarEngine::extract(arch, &temp_dir, Some(files_slice), None),
                     };
@@ -2113,6 +2123,7 @@ impl LinrarApp {
                         ui.horizontal_wrapped(|ui| {
                             ui.radio_value(format, ArchiveType::Rar5, "RAR");
                             ui.radio_value(format, ArchiveType::Zip, "ZIP");
+                            ui.radio_value(format, ArchiveType::SevenZip, "7-Zip");
                             ui.radio_value(format, ArchiveType::TarGz, "TAR.GZ");
                             ui.radio_value(format, ArchiveType::TarBz2, "TAR.BZ2");
                             ui.radio_value(format, ArchiveType::TarXz, "TAR.XZ");
@@ -2208,6 +2219,9 @@ impl LinrarApp {
                                     | ArchiveType::TarZst => {
                                         TarEngine::create(&arch_path, sources, *format, &opts)
                                     }
+                                    ArchiveType::SevenZip => {
+                                        SevenZipEngine::create(&arch_path, sources, &opts)
+                                    }
                                     _ => Err("Unsupported format".to_string()),
                                 };
 
@@ -2299,6 +2313,10 @@ impl LinrarApp {
                                             TarEngine::read_entries(&archive_path, arch_type)
                                                 .map(|(_, e)| e)
                                         }
+                                        ArchiveType::SevenZip => {
+                                            SevenZipEngine::read_entries(&archive_path, pwd)
+                                                .map(|(_, e)| e)
+                                        }
                                         _ => RarEngine::read_entries(&archive_path).map(|(_, e)| e),
                                     };
                                     match entries_res {
@@ -2330,6 +2348,9 @@ impl LinrarApp {
                                     | ArchiveType::TarXz
                                     | ArchiveType::TarZst => {
                                         TarEngine::extract(archive_path, &dest, arch_type, None)
+                                    }
+                                    ArchiveType::SevenZip => {
+                                        SevenZipEngine::extract(archive_path, &dest, None, pwd)
                                     }
                                     _ => Err("Unsupported format".to_string()),
                                 };
@@ -2798,6 +2819,7 @@ impl LinrarApp {
                             ArchiveType::Tar,
                             "Standard TAR Archive (.tar)",
                         );
+                        ui.radio_value(target_format, ArchiveType::SevenZip, "7-Zip Archive (.7z)");
                         ui.radio_value(target_format, ArchiveType::Rar5, "RAR 5.0 Archive (.rar)");
 
                         ui.separator();

@@ -12,7 +12,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Format** | TAR, TAR.GZ, TAR.BZ2 | POSIX tarball, Gzip, Bzip2 | **Full** | `tar_engine.rs` |
 | **Format** | RAR (RAR4 & RAR5 Read) | Pure parsing & UnRAR CLI | **Full** | `rar_parser.rs` + `rar_engine.rs` |
 | **Format** | RAR (Extraction/Creation) | Proprietary RARLAB unrar/rar | **Full** | CLI wrapper `rar_engine.rs` |
-| **Format** | 7-Zip (`.7z`) | LZMA, LZMA2, BCJ2, PPMd | **Planned** | Enum tersedia di `types.rs` |
+| **Format** | 7-Zip (`.7z`) | LZMA, LZMA2, BCJ2, PPMd | **Full** | `sevenzip_engine.rs` + `sevenz-rust2` |
 | **Format** | Zstandard (`.zst`, `.tar.zst`, `.tzst`) | RFC 8878 Zstandard high-speed | **Full** | `tar_engine.rs` + `zstd` |
 | **Format** | XZ (`.tar.xz`, `.txz`, `.xz`) | LZMA2 compression | **Full** | `tar_engine.rs` + `xz2` |
 | **Format** | Container Images (ISO, DMG, WIM) | Read-only image extraction | **Planned** | Roadmap Fase 1 |
@@ -103,3 +103,19 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
   - Mendukung pembuatan arsip (*create*), pembacaan inventaris entri (*list*), uji integritas (*test archive*), pratinjau instan (*quick look*), ekstraksi cerdas (*smart extraction*), dan konversi (*converter*) untuk berkas `.tar.zst`, `.tzst`, `.tar.xz`, dan `.txz`.
   - Desain `TarWriter` streaming dengan pemanggilan `.finish()` eksplisit pada encoder untuk menjamin penulisan footer, indeks checksum, dan integritas data format XZ dan Zstandard.
   - Integrasi opsi format `.tar.xz` dan `.tar.zst` pada dialog GUI "Add to Archive" dan "Convert Archive", serta flag format pada perintah CLI (`linrar a`, `linrar x`, `linrar l`, `linrar t`, `linrar convert`).
+
+### J. Format 7-Zip (.7z) Murni Rust Berstandar Industri
+- **Penyempurnaan**:
+  - Mengembangkan engine murni Rust `SevenZipEngine` di `src/core/sevenzip_engine.rs` berbasis `sevenz-rust2` tanpa ketergantungan binary eksternal `p7zip`.
+  - **Algoritma Kompresi LZMA2**: Mendukung tingkatan kompresi dari *Store*, *Fast*, *Normal*, hingga *Ultra/Best* dengan konfigurasi solid dan non-solid block streaming.
+  - **Enkripsi AES-256 & Header Encryption**: Mendukung enkripsi isi file serta opsi enkripsi daftar nama file (*encrypt header / filenames*) yang menyembunyikan struktur isi arsip hingga password yang benar dimasukkan.
+  - **Preservasi Struktur Folder & Metadata**: Penanganan direktori bertingkat secara rekursif menggunakan `ArchiveEntry::from_path` dan `walkdir`, menjaga hierarki folder dan atribut waktu (mtime/ctime).
+  - **Multi-Volume Spanning**: Mendukung pemecahan arsip `.7z` menjadi berkas chunk berukuran tertentu (`.7z.001`, `.7z.002`, dst.) melalui integrasi `VolumeManager`.
+  - **Integrasi Penuh GUI & CLI**:
+    - Dialog GUI *Add to Archive*: Radio button format `.7z` dengan opsi enkripsi header dan split volume.
+    - Dialog GUI *Extract*: Ekstraksi 7z dengan kata sandi dan integrasi *Smart Extraction*.
+    - Dialog GUI *Convert Archive*: Konversi dua arah dari/ke format 7z (ZIP ↔ 7z, TAR ↔ 7z, RAR ↔ 7z).
+    - Quick Look / Double-click preview: Pratinjau langsung file di dalam arsip `.7z`.
+    - Uji integritas arsip (*test archive*) dengan verifikasi checksum CRC32 dan stream dekompresi.
+    - Perintah CLI lengkap (`linrar a`, `linrar l`, `linrar x`, `linrar t`, `linrar convert`).
+

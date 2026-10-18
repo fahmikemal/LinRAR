@@ -1,5 +1,6 @@
 use crate::core::detector::detect_archive_type;
 use crate::core::rar_engine::RarEngine;
+use crate::core::sevenzip_engine::SevenZipEngine;
 use crate::core::smart_extract::SmartExtractor;
 use crate::core::tar_engine::TarEngine;
 use crate::core::zip_engine::ZipEngine;
@@ -25,7 +26,18 @@ impl ArchiveConverter {
             return Err("Target format is identical to source format".to_string());
         }
 
-        let temp_dir = std::env::temp_dir().join(format!("linrar_convert_{}", std::process::id()));
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let temp_dir = std::env::temp_dir().join(format!(
+            "linrar_convert_{}_{}_{}",
+            std::process::id(),
+            nanos,
+            count
+        ));
         fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
 
         // 1. Extract source
@@ -38,6 +50,9 @@ impl ArchiveConverter {
             | ArchiveType::TarBz2
             | ArchiveType::TarXz
             | ArchiveType::TarZst => TarEngine::extract(src, &temp_dir, src_type, None),
+            ArchiveType::SevenZip => {
+                SevenZipEngine::extract(src, &temp_dir, None, options.password.as_deref())
+            }
             _ => RarEngine::extract(src, &temp_dir, None, options.password.as_deref()),
         };
 
@@ -71,6 +86,9 @@ impl ArchiveConverter {
             | ArchiveType::TarXz
             | ArchiveType::TarZst => {
                 TarEngine::create(&target_path, &extracted_items, target_format, options)
+            }
+            ArchiveType::SevenZip => {
+                SevenZipEngine::create(&target_path, &extracted_items, options)
             }
             _ => RarEngine::create(&target_path, &extracted_items, options),
         };

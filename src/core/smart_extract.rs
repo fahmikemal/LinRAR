@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::detector::detect_archive_type;
 use crate::core::rar_engine::RarEngine;
+use crate::core::sevenzip_engine::SevenZipEngine;
 use crate::core::tar_engine::TarEngine;
 use crate::core::zip_engine::ZipEngine;
 use crate::types::{ArchiveEntry, ArchiveType};
@@ -143,6 +144,7 @@ impl SmartExtractor {
             | ArchiveType::TarBz2
             | ArchiveType::TarXz
             | ArchiveType::TarZst => TarEngine::read_entries(p, arch_type).map(|(_, e)| e)?,
+            ArchiveType::SevenZip => SevenZipEngine::read_entries(p, password).map(|(_, e)| e)?,
             ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(p).map(|(_, e)| e)?,
             _ => return Err("Unsupported archive format for smart extraction".to_string()),
         };
@@ -157,6 +159,7 @@ impl SmartExtractor {
             | ArchiveType::TarBz2
             | ArchiveType::TarXz
             | ArchiveType::TarZst => TarEngine::extract(p, &target_dir, arch_type, None)?,
+            ArchiveType::SevenZip => SevenZipEngine::extract(p, &target_dir, None, password)?,
             _ => RarEngine::extract(p, &target_dir, None, password)?,
         }
 
