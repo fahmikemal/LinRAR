@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/linrar_banner.jpg" alt="LinRAR Cover Artwork" width="100%">
+  <img src="assets/linrar_header.png" alt="LinRAR Project Logo" width="560">
 </p>
 
 # LinRAR
