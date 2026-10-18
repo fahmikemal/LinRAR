@@ -265,6 +265,66 @@ impl LinrarApp {
             ThemeMode::Light => Color32::from_rgb(0, 110, 150),
         }
     }
+
+    fn handle_window_resize(&self, ctx: &egui::Context) {
+        let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        if is_maximized {
+            return;
+        }
+
+        let screen_rect = ctx.viewport_rect();
+        let margin = 5.0;
+        if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
+            let on_left = pos.x >= screen_rect.left() && pos.x <= screen_rect.left() + margin;
+            let on_right = pos.x >= screen_rect.right() - margin && pos.x <= screen_rect.right();
+            // Don't trigger North resize over the titlebar buttons (approx 120px from right) unless it's the corner
+            let over_buttons =
+                pos.x >= screen_rect.right() - 120.0 && pos.y <= screen_rect.top() + 28.0;
+            let on_top = pos.y >= screen_rect.top()
+                && pos.y <= screen_rect.top() + margin
+                && (!over_buttons || on_right);
+            let on_bottom = pos.y >= screen_rect.bottom() - margin && pos.y <= screen_rect.bottom();
+
+            let resize_dir = match (on_left, on_right, on_top, on_bottom) {
+                (true, _, true, _) => Some((
+                    egui::ResizeDirection::NorthWest,
+                    egui::CursorIcon::ResizeNorthWest,
+                )),
+                (true, _, _, true) => Some((
+                    egui::ResizeDirection::SouthWest,
+                    egui::CursorIcon::ResizeSouthWest,
+                )),
+                (_, true, true, _) => Some((
+                    egui::ResizeDirection::NorthEast,
+                    egui::CursorIcon::ResizeNorthEast,
+                )),
+                (_, true, _, true) => Some((
+                    egui::ResizeDirection::SouthEast,
+                    egui::CursorIcon::ResizeSouthEast,
+                )),
+                (true, _, _, _) => {
+                    Some((egui::ResizeDirection::West, egui::CursorIcon::ResizeWest))
+                }
+                (_, true, _, _) => {
+                    Some((egui::ResizeDirection::East, egui::CursorIcon::ResizeEast))
+                }
+                (_, _, true, _) => {
+                    Some((egui::ResizeDirection::North, egui::CursorIcon::ResizeNorth))
+                }
+                (_, _, _, true) => {
+                    Some((egui::ResizeDirection::South, egui::CursorIcon::ResizeSouth))
+                }
+                _ => None,
+            };
+
+            if let Some((dir, cursor)) = resize_dir {
+                ctx.set_cursor_icon(cursor);
+                if ctx.input(|i| i.pointer.primary_pressed()) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for LinrarApp {
@@ -303,6 +363,7 @@ impl eframe::App for LinrarApp {
         };
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Title(window_title));
+        self.handle_window_resize(ui.ctx());
 
         // Global Keyboard Shortcuts
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::A)) {
@@ -342,8 +403,8 @@ impl eframe::App for LinrarApp {
             self.trigger_delete();
         }
 
-        // Top Brand Header (Logo and Wordmark above menu bar)
-        egui::Panel::top("brand_header").show(ui, |ui| {
+        // Custom CSD Title Bar (Logo, Wordmark, Draggable Area, and Window Controls)
+        egui::Panel::top("custom_title_bar").show(ui, |ui| {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
@@ -358,14 +419,134 @@ impl eframe::App for LinrarApp {
                         "LinRAR - {}",
                         arch.file_name().unwrap_or_default().to_string_lossy()
                     ),
-                    None => "LinRAR".to_string(),
+                    None => {
+                        if self.view_mode == ViewMode::LocalFileSystem {
+                            let dir_name = self
+                                .current_dir
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy();
+                            if dir_name.is_empty() {
+                                "LinRAR".to_string()
+                            } else {
+                                format!("LinRAR - {}", dir_name)
+                            }
+                        } else {
+                            "LinRAR".to_string()
+                        }
+                    }
                 };
-                ui.label(
-                    RichText::new(brand_text)
-                        .strong()
-                        .size(13.0)
-                        .color(self.accent_color()),
+
+                let title_resp = ui.add(
+                    egui::Label::new(
+                        RichText::new(brand_text)
+                            .strong()
+                            .size(13.0)
+                            .color(self.accent_color()),
+                    )
+                    .sense(egui::Sense::click_and_drag()),
                 );
+                if title_resp.dragged() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                if title_resp.double_clicked() {
+                    let is_max = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max));
+                }
+
+                // Window controls aligned on the right
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
+
+                    // Close button
+                    let (close_rect, close_resp) =
+                        ui.allocate_exact_size(Vec2::new(38.0, 24.0), egui::Sense::click());
+                    if close_resp.hovered() {
+                        ui.painter()
+                            .rect_filled(close_rect, 2.0, Color32::from_rgb(220, 50, 50));
+                        ui.painter().text(
+                            close_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "✕",
+                            egui::FontId::proportional(12.0),
+                            Color32::WHITE,
+                        );
+                    } else {
+                        ui.painter().text(
+                            close_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "✕",
+                            egui::FontId::proportional(12.0),
+                            ui.visuals().text_color(),
+                        );
+                    }
+                    if close_resp.clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+
+                    // Maximize / Restore button
+                    let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+                    let (max_rect, max_resp) =
+                        ui.allocate_exact_size(Vec2::new(36.0, 24.0), egui::Sense::click());
+                    if max_resp.hovered() {
+                        let hover_bg = if self.theme_mode == ThemeMode::Dark {
+                            Color32::from_white_alpha(35)
+                        } else {
+                            Color32::from_black_alpha(25)
+                        };
+                        ui.painter().rect_filled(max_rect, 2.0, hover_bg);
+                    }
+                    let max_icon = if is_maximized { "🗗" } else { "🗖" };
+                    ui.painter().text(
+                        max_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        max_icon,
+                        egui::FontId::proportional(12.0),
+                        ui.visuals().text_color(),
+                    );
+                    if max_resp.clicked() {
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                    }
+
+                    // Minimize button
+                    let (min_rect, min_resp) =
+                        ui.allocate_exact_size(Vec2::new(36.0, 24.0), egui::Sense::click());
+                    if min_resp.hovered() {
+                        let hover_bg = if self.theme_mode == ThemeMode::Dark {
+                            Color32::from_white_alpha(35)
+                        } else {
+                            Color32::from_black_alpha(25)
+                        };
+                        ui.painter().rect_filled(min_rect, 2.0, hover_bg);
+                    }
+                    ui.painter().text(
+                        min_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "—",
+                        egui::FontId::proportional(12.0),
+                        ui.visuals().text_color(),
+                    );
+                    if min_resp.clicked() {
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+
+                    // Middle draggable area spanning between the title and controls
+                    let available_w = ui.available_width().max(0.0);
+                    let (_drag_rect, drag_resp) = ui.allocate_exact_size(
+                        Vec2::new(available_w, 24.0),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if drag_resp.dragged() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                    if drag_resp.double_clicked() {
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                    }
+                });
             });
             ui.add_space(2.0);
         });
