@@ -53,6 +53,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
     };
 
     let smart_bypass = !args.no_smart_bypass;
+    let delete_after_archiving = args.delete || args.shred;
+    let shred_after_archiving = args.shred;
+    let shred_method = args.get_shred_method();
 
     let options = AddOptions {
         compression_level,
@@ -64,6 +67,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
         comment,
         smart_bypass,
         bypass_extensions: None,
+        delete_after_archiving,
+        shred_after_archiving,
+        shred_method,
     };
 
     match cmd {
@@ -88,7 +94,39 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             };
 
             match res {
-                Ok(_) => println!("Done. Archive created successfully."),
+                Ok(_) => {
+                    println!("Done. Archive created successfully.");
+                    if options.delete_after_archiving {
+                        if options.shred_after_archiving {
+                            println!(
+                                "Securely shredding source files ({})...",
+                                options.shred_method.name()
+                            );
+                            let rep = crate::core::shredder::FileShredder::shred_paths(
+                                &sources,
+                                options.shred_method,
+                            );
+                            println!(
+                                "Sanitization complete: {} files shredded ({} bytes overwritten), {} directories removed.",
+                                rep.files_shredded, rep.bytes_overwritten, rep.dirs_removed
+                            );
+                            if !rep.errors.is_empty() {
+                                for err in &rep.errors {
+                                    eprintln!("  Shred warning: {}", err);
+                                }
+                            }
+                        } else {
+                            for src in &sources {
+                                if src.is_dir() {
+                                    let _ = std::fs::remove_dir_all(src);
+                                } else {
+                                    let _ = std::fs::remove_file(src);
+                                }
+                            }
+                            println!("Source files deleted after archiving.");
+                        }
+                    }
+                }
                 Err(e) => {
                     eprintln!("Error creating archive: {}", e);
                     std::process::exit(1);
@@ -549,6 +587,34 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     eprintln!("Error updating comment: {}", e);
                     std::process::exit(1);
                 }
+            }
+        }
+
+        Commands::Shred { files, method } => {
+            let shred_method = match method.to_ascii_lowercase().as_str() {
+                "quick" | "zero" => crate::core::shredder::ShredMethod::QuickZero,
+                "random" => crate::core::shredder::ShredMethod::Random,
+                "gutmann" | "gutmannlite" => crate::core::shredder::ShredMethod::GutmannLite,
+                _ => crate::core::shredder::ShredMethod::DoD5220,
+            };
+
+            let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
+            println!(
+                "LinRAR 0.1.0 - Securely shredding {} item(s) using {}...",
+                paths.len(),
+                shred_method.name()
+            );
+
+            let rep = crate::core::shredder::FileShredder::shred_paths(&paths, shred_method);
+            println!(
+                "Sanitization complete: {} files shredded ({} bytes overwritten), {} directories removed.",
+                rep.files_shredded, rep.bytes_overwritten, rep.dirs_removed
+            );
+            if !rep.errors.is_empty() {
+                for err in &rep.errors {
+                    eprintln!("  Error: {}", err);
+                }
+                std::process::exit(1);
             }
         }
     }

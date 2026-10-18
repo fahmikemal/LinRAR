@@ -20,6 +20,9 @@ pub enum DialogState {
         is_locked: bool,
         comment: String,
         smart_bypass: bool,
+        delete_after_archiving: bool,
+        shred_after_archiving: bool,
+        shred_method: crate::core::shredder::ShredMethod,
     },
     ExtractArchive {
         archive_path: PathBuf,
@@ -100,6 +103,9 @@ impl DialogState {
             is_locked: false,
             comment: "".to_string(),
             smart_bypass: true,
+            delete_after_archiving: false,
+            shred_after_archiving: false,
+            shred_method: crate::core::shredder::ShredMethod::QuickZero,
         }
     }
 

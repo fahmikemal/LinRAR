@@ -47,6 +47,22 @@ pub struct Cli {
     )]
     pub no_smart_bypass: bool,
 
+    #[arg(long = "delete", help = "Delete files after successful archiving")]
+    pub delete: bool,
+
+    #[arg(
+        long = "shred",
+        help = "Securely shred files with multi-pass sanitization after archiving"
+    )]
+    pub shred: bool,
+
+    #[arg(
+        long = "shred-method",
+        default_value = "quick",
+        help = "Shredding method (quick, random, dod, gutmann)"
+    )]
+    pub shred_method: String,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 
@@ -166,6 +182,21 @@ pub enum Commands {
         #[arg(short, long, help = "Comment text or path to comment file")]
         comment: Option<String>,
     },
+
+    #[command(
+        name = "shred",
+        about = "Securely shred and sanitize files or directories"
+    )]
+    Shred {
+        files: Vec<String>,
+        #[arg(
+            short = 'm',
+            long = "method",
+            default_value = "dod",
+            help = "Shredding method (quick, random, dod, gutmann)"
+        )]
+        method: String,
+    },
 }
 
 impl Cli {
@@ -177,6 +208,15 @@ impl Cli {
             4 => CompressionLevel::Good,
             5 => CompressionLevel::Best,
             _ => CompressionLevel::Normal,
+        }
+    }
+
+    pub fn get_shred_method(&self) -> crate::core::shredder::ShredMethod {
+        match self.shred_method.to_ascii_lowercase().as_str() {
+            "random" => crate::core::shredder::ShredMethod::Random,
+            "dod" | "dod5220" => crate::core::shredder::ShredMethod::DoD5220,
+            "gutmann" | "gutmannlite" => crate::core::shredder::ShredMethod::GutmannLite,
+            _ => crate::core::shredder::ShredMethod::QuickZero,
         }
     }
 }

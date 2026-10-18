@@ -105,6 +105,9 @@ pub struct AddOptions {
     pub comment: Option<String>,
     pub smart_bypass: bool,
     pub bypass_extensions: Option<Vec<String>>,
+    pub delete_after_archiving: bool,
+    pub shred_after_archiving: bool,
+    pub shred_method: crate::core::shredder::ShredMethod,
 }
 
 impl Default for AddOptions {
@@ -119,6 +122,9 @@ impl Default for AddOptions {
             comment: None,
             smart_bypass: true,
             bypass_extensions: None,
+            delete_after_archiving: false,
+            shred_after_archiving: false,
+            shred_method: crate::core::shredder::ShredMethod::QuickZero,
         }
     }
 }

@@ -10,6 +10,7 @@ use crate::core::rar_engine::RarEngine;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::VirusScanner;
 use crate::core::sevenzip_engine::SevenZipEngine;
+use crate::core::shredder::{FileShredder, ShredMethod};
 use crate::core::smart_extract::SmartExtractor;
 use crate::core::tar_engine::TarEngine;
 use crate::core::volume::VolumeManager;
@@ -832,4 +833,92 @@ fn test_smart_bypass_zip_compression_behavior() {
     let vid_file = arch.by_name("recording.mp4").unwrap();
     // With smart bypass disabled, the compression method must be Deflated
     assert_eq!(vid_file.compression(), zip::CompressionMethod::Deflated);
+}
+
+#[test]
+fn test_shred_file_quick_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("secret_data.txt");
+    let content = "Highly confidential financial statement 2026";
+    fs::write(&file_path, content).unwrap();
+    assert!(file_path.exists());
+
+    let bytes = FileShredder::shred_file(&file_path, ShredMethod::QuickZero).unwrap();
+    assert_eq!(bytes, content.len() as u64);
+    assert!(!file_path.exists());
+}
+
+#[test]
+fn test_shred_file_dod5220() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("dod_secret.bin");
+    let content = vec![0x42u8; 1024];
+    fs::write(&file_path, &content).unwrap();
+    assert!(file_path.exists());
+
+    let bytes = FileShredder::shred_file(&file_path, ShredMethod::DoD5220).unwrap();
+    // 3 passes overwrite
+    assert_eq!(bytes, (content.len() * 3) as u64);
+    assert!(!file_path.exists());
+}
+
+#[test]
+fn test_shred_path_recursive_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let target_dir = tmp.path().join("classified_folder");
+    fs::create_dir_all(target_dir.join("sub1").join("sub2")).unwrap();
+
+    let f1 = target_dir.join("root.txt");
+    let f2 = target_dir.join("sub1").join("doc1.txt");
+    let f3 = target_dir.join("sub1").join("sub2").join("deep.txt");
+
+    fs::write(&f1, "Sensitive 1").unwrap();
+    fs::write(&f2, "Sensitive 2").unwrap();
+    fs::write(&f3, "Sensitive 3").unwrap();
+
+    let report = FileShredder::shred_path(&target_dir, ShredMethod::Random).unwrap();
+    assert_eq!(report.files_shredded, 3);
+    assert_eq!(report.dirs_removed, 3); // target_dir, sub1, sub2
+    assert!(report.bytes_overwritten > 0);
+    assert!(!target_dir.exists());
+}
+
+#[test]
+fn test_archive_creation_with_shred() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_to_archive = tmp.path().join("archive_me_then_shred.txt");
+    fs::write(
+        &file_to_archive,
+        "Document to be safely shredded after archive",
+    )
+    .unwrap();
+    assert!(file_to_archive.exists());
+
+    let zip_dest = tmp.path().join("shredded_source.zip");
+    let sources = vec![file_to_archive.clone()];
+    let opts = AddOptions {
+        delete_after_archiving: true,
+        shred_after_archiving: true,
+        shred_method: ShredMethod::DoD5220,
+        ..Default::default()
+    };
+
+    ZipEngine::create(&zip_dest, &sources, &opts).unwrap();
+    assert!(zip_dest.exists());
+
+    // Execute post-archiving shredding
+    if opts.delete_after_archiving && opts.shred_after_archiving {
+        FileShredder::shred_paths(&sources, opts.shred_method);
+    }
+
+    // Verify source file is completely deleted and sanitized
+    assert!(!file_to_archive.exists());
+
+    // Verify archive still unpacks the preserved data properly
+    let unpack_dir = tmp.path().join("unpacked_shred_test");
+    ZipEngine::extract(&zip_dest, &unpack_dir, None, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(unpack_dir.join("archive_me_then_shred.txt")).unwrap(),
+        "Document to be safely shredded after archive"
+    );
 }

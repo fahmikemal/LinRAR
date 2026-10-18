@@ -1894,6 +1894,9 @@ impl LinrarApp {
                     is_locked: false,
                     comment: "".to_string(),
                     smart_bypass: true,
+                    delete_after_archiving: false,
+                    shred_after_archiving: false,
+                    shred_method: crate::core::shredder::ShredMethod::QuickZero,
                 };
                 return;
             }
@@ -2104,6 +2107,9 @@ impl LinrarApp {
                 is_locked,
                 comment,
                 smart_bypass,
+                delete_after_archiving,
+                shred_after_archiving,
+                shred_method,
             } => {
                 let mut is_open = true;
                 let win_resp = egui::Window::new("Add to Archive")
@@ -2165,6 +2171,51 @@ impl LinrarApp {
                         ui.checkbox(smart_bypass, "⚡ Smart Bypass (High-Speed Archiving)")
                             .on_hover_text("Bypasses compression for already-compressed files (videos, images, audio, archives) to dramatically speed up archiving.");
 
+                        ui.separator();
+                        ui.checkbox(delete_after_archiving, "🗑 Delete files after archiving");
+                        if *delete_after_archiving {
+                            ui.horizontal(|ui| {
+                                ui.add_space(20.0);
+                                ui.checkbox(
+                                    shred_after_archiving,
+                                    "🔒 Secure Shred (Overwrite data before unlink)",
+                                )
+                                .on_hover_text(
+                                    "Multi-pass data sanitization to prevent forensic data recovery (DoD 5220.22-M / Random).",
+                                );
+                            });
+                            if *shred_after_archiving {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(40.0);
+                                    ui.label("Shredding Standard:");
+                                    egui::ComboBox::from_id_salt("shred_method_combo")
+                                        .selected_text(shred_method.name())
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                shred_method,
+                                                crate::core::shredder::ShredMethod::QuickZero,
+                                                "Quick Zero (1 pass)",
+                                            );
+                                            ui.selectable_value(
+                                                shred_method,
+                                                crate::core::shredder::ShredMethod::Random,
+                                                "Pseudorandom (1 pass)",
+                                            );
+                                            ui.selectable_value(
+                                                shred_method,
+                                                crate::core::shredder::ShredMethod::DoD5220,
+                                                "DoD 5220.22-M (3 passes)",
+                                            );
+                                            ui.selectable_value(
+                                                shred_method,
+                                                crate::core::shredder::ShredMethod::GutmannLite,
+                                                "Gutmann Lite (7 passes)",
+                                            );
+                                        });
+                                });
+                            }
+                        }
+
                         ui.horizontal(|ui| {
                             ui.label("Split to volumes (e.g. 10M, 100M):");
                             ui.text_edit_singleline(volume_size);
@@ -2208,6 +2259,9 @@ impl LinrarApp {
                                     },
                                     smart_bypass: *smart_bypass,
                                     bypass_extensions: None,
+                                    delete_after_archiving: *delete_after_archiving,
+                                    shred_after_archiving: *shred_after_archiving,
+                                    shred_method: *shred_method,
                                 };
 
                                 let arch_path = PathBuf::from(&archive_name);
@@ -2235,6 +2289,22 @@ impl LinrarApp {
                                 if let Err(e) = res {
                                     eprintln!("Add archive error: {}", e);
                                 } else {
+                                    if opts.delete_after_archiving {
+                                        if opts.shred_after_archiving {
+                                            crate::core::shredder::FileShredder::shred_paths(
+                                                sources,
+                                                opts.shred_method,
+                                            );
+                                        } else {
+                                            for src in sources {
+                                                if src.is_dir() {
+                                                    let _ = std::fs::remove_dir_all(src);
+                                                } else {
+                                                    let _ = std::fs::remove_file(src);
+                                                }
+                                            }
+                                        }
+                                    }
                                     post_add_refresh = Some(arch_path);
                                 }
                             }

@@ -20,7 +20,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Keamanan** | Enkripsi Header / Encrypt Filenames | RAR `-hp`, 7z header encryption | **Full** | `rar_engine.rs` (`-hp`) |
 | **Keamanan** | Virus & Threat Scanner | ClamAV + Heuristic signatures | **Full** | `scanner.rs` (`ArchiveScanner`) |
 | **Keamanan** | Path Traversal / Zip Slip Defense | Strict path sanitization (`enclosed_name`) | **Full** | `zip_engine.rs`, `tar_engine.rs` |
-| **Keamanan** | Secure File Shredding (DoD / Gutmann) | Overwrite before unlink | **Planned** | Roadmap Fase 3 |
+| **Keamanan** | Secure File Shredding (DoD / Gutmann) | Overwrite before unlink | **Full** | `shredder.rs` (`FileShredder`) |
 | **Integritas** | Uji Integritas (Test Archive) | CRC32, MD5, SHA-256 checksums | **Full** | `test_archive()` di semua engine |
 | **Integritas** | Archive Repair (Perbaikan Arsip) | Central directory & header recovery | **Full** | `repair.rs` (`ArchiveRepair`) |
 | **Integritas** | Recovery Record (Reed-Solomon) | 1%–1000% parity data blocks | **Full** | `rar_engine.rs` + Protect dialog |
@@ -129,5 +129,25 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
   - **Dukungan Penuh GUI & CLI**:
     - Dialog GUI *Add to Archive*: Checkbox interaktif "⚡ Smart Bypass (High-Speed Archiving)" dengan hover tooltip informatif.
     - Opsi CLI: Diaktifkan secara default pada `linrar a`, dan dapat dimatikan jika diinginkan melalui flag `--no-smart-bypass`.
+
+### L. Secure File Shredding / Sanitasi Berkas Permanen (DoD 5220.22-M & Multi-Pass)
+- **Penyempurnaan**:
+  - Engine sanitasi data aman `FileShredder` di `src/core/shredder.rs` untuk menghapus berkas rahasia secara permanen agar tidak dapat dipulihkan (*unrecoverable*) oleh software forensik / undelete (fitur benchmark ala PeaZip "Secure delete" dan WinRAR "Wipe files after archiving").
+  - **Standar Sanitasi Multi-Pass**:
+    - *Quick Zero (1-pass)*: Penulisan byte `0x00` tunggal secara cepat dan optimal untuk media NVMe/SSD dengan kontrol TRIM.
+    - *Pseudorandom (1-pass)*: Penulisan deret acak berkecepatan tinggi via generator XorShift128+ terenkripsi dari `/dev/urandom`.
+    - *DoD 5220.22-M (3-pass)*: Standar Departemen Pertahanan AS (Pass 1: pola biner `0x55`, Pass 2: pola komplemen `0xAA`, Pass 3: deret acak).
+    - *Gutmann Lite (7-pass)*: Kombinasi rotasi bit dan multi-pattern acak untuk media magnetik/legacy.
+  - **Protokol Keamanan Tingkat Rendah**:
+    - Memaksa hak akses berkas (*file permission*) menjadi *writable* (`0o600`) sebelum proses penulisan ulang.
+    - Pemanggilan sinkronisasi perangkat keras `file.sync_all()` setelah setiap *pass* penulisan untuk menguras cache OS ke blok penyimpanan fisik.
+    - Pemotongan ukuran berkas (*truncate*) ke 0 byte setelah selesai dioverwrite.
+    - Pengacakan nama berkas (*obfuscate filename*) di tingkat direktori sebelum berkas di-*unlink* dari sistem file guna membersihkan jejak nama berkas asli dari jurnal inode/direktori.
+    - Dukungan sanitasi rekursif untuk struktur pohon direktori (*bottom-up traversal*).
+  - **Integrasi Penuh GUI & CLI**:
+    - Dialog GUI *Add to Archive*: Opsi "🗑 Delete files after archiving", sub-opsi "🔒 Secure Shred (Overwrite data before unlink)", dan ComboBox pemilihan algoritma standar penghapusan.
+    - Opsi CLI saat mengarsipkan: `linrar a <arch> <files> --delete`, `linrar a <arch> <files> --shred`, dan `--shred-method <quick|random|dod|gutmann>`.
+    - Perintah CLI mandiri: `linrar shred <files/dirs>... [--method <quick|random|dod|gutmann>]`.
+
 
 
