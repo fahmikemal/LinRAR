@@ -365,6 +365,19 @@ impl eframe::App for LinrarApp {
             .send_viewport_cmd(egui::ViewportCommand::Title(window_title));
         self.handle_window_resize(ui.ctx());
 
+        // --- Drag-and-Drop File Handling ---
+        let dropped_paths: Vec<PathBuf> = ui.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .filter(|p| p.exists())
+                .collect()
+        });
+        if !dropped_paths.is_empty() {
+            self.handle_dropped_files(dropped_paths);
+        }
+
         // Global Keyboard Shortcuts
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::A)) {
             self.trigger_add_dialog();
@@ -1042,6 +1055,9 @@ impl eframe::App for LinrarApp {
         // Render Active Modal Dialog
         let ctx = ui.ctx().clone();
         self.render_dialogs(&ctx);
+
+        // Render Drag-and-Drop Visual Overlay
+        self.render_dnd_overlay(ui);
     }
 }
 
@@ -1821,6 +1837,167 @@ impl LinrarApp {
         }
     }
 
+    pub fn handle_dropped_files(&mut self, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+
+        // Case 1: If dropping a single archive, open it directly in LinRAR
+        if paths.len() == 1 && is_supported_archive(&paths[0]) {
+            self.open_archive(&paths[0]);
+            return;
+        }
+
+        // Case 2: In VirtualArchive mode, add dropped files to the open archive
+        if self.view_mode == ViewMode::VirtualArchive {
+            if let Some(info) = &self.archive_info
+                && info.is_locked
+            {
+                self.dialog_state = DialogState::Message {
+                    title: "Archive Locked".to_string(),
+                    message:
+                        "Cannot add dropped files: this archive is locked against modifications."
+                            .to_string(),
+                    is_error: true,
+                };
+                return;
+            }
+
+            if let Some(current) = self.current_archive.clone() {
+                let arch_type = detect_archive_type(&current);
+                let is_solid = self
+                    .archive_info
+                    .as_ref()
+                    .map(|i| i.is_solid)
+                    .unwrap_or(false);
+                self.dialog_state = DialogState::AddArchive {
+                    sources: paths,
+                    archive_name: current.to_string_lossy().to_string(),
+                    format: arch_type,
+                    level: CompressionLevel::Normal,
+                    volume_size: "".to_string(),
+                    password: "".to_string(),
+                    encrypt_headers: false,
+                    is_solid,
+                    is_locked: false,
+                    comment: "".to_string(),
+                };
+                return;
+            }
+        }
+
+        // Case 3: In LocalFileSystem mode, prompt to add dropped files to a new archive in current directory
+        self.dialog_state = DialogState::new_add(paths, &self.current_dir);
+    }
+
+    fn render_dnd_overlay(&self, ui: &mut egui::Ui) {
+        let hovered_files = ui.input(|i| i.raw.hovered_files.clone());
+        if hovered_files.is_empty() {
+            return;
+        }
+
+        let is_archive_hovered = hovered_files
+            .iter()
+            .any(|f| f.path.as_ref().map(is_supported_archive).unwrap_or(false));
+
+        let screen_rect = ui.ctx().viewport_rect();
+        let painter = ui.painter();
+
+        // 1. Semi-transparent backdrop overlay
+        let backdrop_color = if self.theme_mode == ThemeMode::Dark {
+            Color32::from_rgba_unmultiplied(15, 20, 30, 210)
+        } else {
+            Color32::from_rgba_unmultiplied(240, 245, 255, 215)
+        };
+        painter.rect_filled(screen_rect, 0.0, backdrop_color);
+
+        // 2. Accent border frame
+        let inset_rect = screen_rect.shrink(28.0);
+        let accent_color = if self.theme_mode == ThemeMode::Dark {
+            Color32::from_rgb(70, 150, 255)
+        } else {
+            Color32::from_rgb(0, 102, 204)
+        };
+        painter.rect_stroke(
+            inset_rect,
+            16.0,
+            egui::Stroke::new(3.0, accent_color),
+            egui::StrokeKind::Inside,
+        );
+
+        // 3. Central badge container
+        let center = inset_rect.center();
+        let badge_rect = Rect::from_center_size(center, egui::vec2(440.0, 150.0));
+        let badge_bg = if self.theme_mode == ThemeMode::Dark {
+            Color32::from_rgb(32, 38, 52)
+        } else {
+            Color32::from_rgb(255, 255, 255)
+        };
+        painter.rect_filled(badge_rect, 12.0, badge_bg);
+        painter.rect_stroke(
+            badge_rect,
+            12.0,
+            egui::Stroke::new(1.5, accent_color),
+            egui::StrokeKind::Inside,
+        );
+
+        // 4. Badges and instructions
+        let (icon_text, main_text, sub_text) = if is_archive_hovered {
+            (
+                "📂",
+                "Buka Arsip di LinRAR",
+                "Lepaskan untuk membuka dan mengelola arsip",
+            )
+        } else if self.view_mode == ViewMode::VirtualArchive {
+            (
+                "➕",
+                "Tambahkan File ke Arsip Ini",
+                "Lepaskan untuk mengompresi ke arsip yang sedang terbuka",
+            )
+        } else {
+            (
+                "📦",
+                "Buat Arsip Baru",
+                "Lepaskan file untuk mengompresi ke folder saat ini",
+            )
+        };
+
+        let text_color = if self.theme_mode == ThemeMode::Dark {
+            Color32::WHITE
+        } else {
+            Color32::from_rgb(20, 25, 35)
+        };
+        let sub_color = if self.theme_mode == ThemeMode::Dark {
+            Color32::from_rgb(160, 175, 200)
+        } else {
+            Color32::from_rgb(90, 100, 120)
+        };
+
+        painter.text(
+            center + egui::vec2(0.0, -32.0),
+            egui::Align2::CENTER_CENTER,
+            icon_text,
+            egui::FontId::proportional(36.0),
+            text_color,
+        );
+
+        painter.text(
+            center + egui::vec2(0.0, 10.0),
+            egui::Align2::CENTER_CENTER,
+            main_text,
+            egui::FontId::proportional(20.0),
+            text_color,
+        );
+
+        painter.text(
+            center + egui::vec2(0.0, 36.0),
+            egui::Align2::CENTER_CENTER,
+            sub_text,
+            egui::FontId::proportional(12.0),
+            sub_color,
+        );
+    }
+
     fn trigger_scan_archive(&mut self) {
         let arch_path = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
@@ -1896,6 +2073,7 @@ impl LinrarApp {
         let accent_color = self.accent_color();
         let is_light_theme = self.theme_mode == ThemeMode::Light;
         let mut dialog_window_rect: Option<egui::Rect> = None;
+        let mut post_add_refresh: Option<PathBuf> = None;
         let initial_discriminant = std::mem::discriminant(&self.dialog_state);
 
         match &mut self.dialog_state {
@@ -2030,6 +2208,8 @@ impl LinrarApp {
                                 close_dialog = true;
                                 if let Err(e) = res {
                                     eprintln!("Add archive error: {}", e);
+                                } else {
+                                    post_add_refresh = Some(arch_path);
                                 }
                             }
 
@@ -2976,6 +3156,18 @@ impl LinrarApp {
             }
             self.dialog_state = DialogState::None;
             self.dialog_frames_open = 0;
+        }
+
+        if let Some(target) = post_add_refresh {
+            if let Some(cur) = self.current_archive.clone() {
+                if cur == target {
+                    self.open_archive(&cur);
+                } else {
+                    self.refresh_local();
+                }
+            } else {
+                self.refresh_local();
+            }
         }
     }
 }

@@ -507,7 +507,8 @@ fn launch_gui(args: Cli) -> eframe::Result {
         .with_app_id("linrar")
         .with_inner_size([960.0, 620.0])
         .with_min_inner_size([640.0, 400.0])
-        .with_decorations(false);
+        .with_decorations(false)
+        .with_drag_and_drop(true);
 
     if let Some(icon) = icon_data {
         viewport = viewport.with_icon(icon);
