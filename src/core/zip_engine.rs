@@ -4,6 +4,7 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
+use crate::core::bypass::SmartBypass;
 use crate::core::volume::VolumeManager;
 use crate::types::{
     AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel, format_unix_mode,
@@ -194,8 +195,14 @@ impl ZipEngine {
                 #[cfg(not(unix))]
                 let permissions = 0o644;
 
+                let file_method = if SmartBypass::should_bypass_with_options(src, options) {
+                    CompressionMethod::Stored
+                } else {
+                    method
+                };
+
                 let mut file_options = SimpleFileOptions::default()
-                    .compression_method(method)
+                    .compression_method(file_method)
                     .unix_permissions(permissions);
 
                 if let Some(pwd) = &options.password
@@ -233,8 +240,16 @@ impl ZipEngine {
                         0o644
                     };
 
+                    let file_method = if entry.file_type().is_file()
+                        && SmartBypass::should_bypass_with_options(path, options)
+                    {
+                        CompressionMethod::Stored
+                    } else {
+                        method
+                    };
+
                     let mut file_options = SimpleFileOptions::default()
-                        .compression_method(method)
+                        .compression_method(file_method)
                         .unix_permissions(permissions);
 
                     if let Some(pwd) = &options.password

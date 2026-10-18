@@ -1,4 +1,5 @@
 pub mod benchmark;
+pub mod bypass;
 pub mod converter;
 pub mod detector;
 pub mod finder;

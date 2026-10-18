@@ -7,6 +7,7 @@ use sevenz_rust2::{
     default_entry_extract_fn, encoder_options,
 };
 
+use crate::core::bypass::SmartBypass;
 use crate::core::volume::VolumeManager;
 use crate::types::{AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel};
 
@@ -158,7 +159,7 @@ impl SevenZipEngine {
         }
 
         methods.push(encoder_options::Lzma2Options::from_level(lzma_level).into());
-        writer.set_content_methods(methods);
+        writer.set_content_methods(methods.clone());
 
         let mut collected_entries = Vec::new();
 
@@ -225,12 +226,29 @@ impl SevenZipEngine {
                     .map_err(|e| e.to_string())?;
             }
         } else {
+            let lzma_methods = methods.clone();
+            let mut copy_methods = Vec::new();
+            if let Some(pwd) = &options.password
+                && !pwd.is_empty()
+            {
+                copy_methods
+                    .push(encoder_options::AesEncoderOptions::new(pwd.as_str().into()).into());
+            }
+            copy_methods.push(sevenz_rust2::EncoderConfiguration::new(
+                sevenz_rust2::EncoderMethod::COPY,
+            ));
+
             for (entry, file_path) in collected_entries {
                 if entry.is_directory {
                     writer
                         .push_archive_entry(entry, None::<File>)
                         .map_err(|e| e.to_string())?;
                 } else if let Some(path) = file_path {
+                    if SmartBypass::should_bypass_with_options(&path, options) {
+                        writer.set_content_methods(copy_methods.clone());
+                    } else {
+                        writer.set_content_methods(lzma_methods.clone());
+                    }
                     let f = File::open(&path).map_err(|e| e.to_string())?;
                     writer
                         .push_archive_entry(entry, Some(f))

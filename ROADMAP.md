@@ -28,7 +28,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Arsip** | Multi-Volume Spanning (Split Archives) | Partisi `.001` / `.part01` & chunk builder | **Full** | `volume.rs` (`VolumeManager`) |
 | **Arsip** | Archive Converter | Konversi otomatis antar-format | **Full** | `converter.rs` (`ArchiveConverter`) |
 | **Arsip** | Archive Content Report | Ekspor inventaris HTML & TXT | **Full** | `report.rs` (`ArchiveReport`) |
-| **Arsip** | Smart Bypass (High-Speed Archiving) | Skip re-compressing media (mp4, jpg) | **Planned** | Roadmap Fase 2 |
+| **Arsip** | Smart Bypass (High-Speed Archiving) | Skip re-compressing media (mp4, jpg) | **Full** | `bypass.rs` (`SmartBypass`) + ZIP/7z engines |
 | **Arsip** | Self-Extracting Archive (SFX) | Linux ELF executable stub | **Planned** | Roadmap Fase 3 |
 | **GUI & UX** | Unified CSD Titlebar | Vector-drawn controls, borderless resize | **Full** | `app.rs` (`custom_title_bar`) |
 | **GUI & UX** | Quick Look / In-Archive File Preview | Preview teks/gambar langsung via default system app | **Full** | `app.rs` (`trigger_view_file`, double-click) |
@@ -116,6 +116,18 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
     - Dialog GUI *Extract*: Ekstraksi 7z dengan kata sandi dan integrasi *Smart Extraction*.
     - Dialog GUI *Convert Archive*: Konversi dua arah dari/ke format 7z (ZIP ↔ 7z, TAR ↔ 7z, RAR ↔ 7z).
     - Quick Look / Double-click preview: Pratinjau langsung file di dalam arsip `.7z`.
-    - Uji integritas arsip (*test archive*) dengan verifikasi checksum CRC32 dan stream dekompresi.
     - Perintah CLI lengkap (`linrar a`, `linrar l`, `linrar x`, `linrar t`, `linrar convert`).
+
+### K. Smart Bypass / High-Speed Archiving (Deteksi Berkas Non-Kompresibel & Heuristik Entropi)
+- **Penyempurnaan**:
+  - Engine `SmartBypass` di `src/core/bypass.rs` yang secara otomatis mendeteksi berkas yang sudah terkompresi untuk mengabaikan (*bypass*) proses kompresi ulang yang membuang siklus CPU dan memperlambat pembuatan arsip (fitur benchmark ala WinRAR "Store uncompressed" dan Bandizip "High Speed Archiving").
+  - **Registry Ekstensi Komprehensif**: Mendukung 40+ ekstensi non-kompresibel mencakup video (`mp4`, `mkv`, `avi`, `mov`), audio (`mp3`, `aac`, `ogg`, `flac`, `opus`), gambar modern (`jpg`, `png`, `webp`, `gif`, `avif`, `heic`), paket distribusi (`apk`, `jar`, `deb`, `rpm`), dokumen kontainer (`docx`, `xlsx`, `pdf`, `epub`), dan arsip (`zip`, `7z`, `rar`, `zst`, `gz`).
+  - **Heuristik Shannon Entropy Terpadu**: Untuk berkas tanpa ekstensi standar atau berekstensi asing berukuran $\ge 4$ KB, engine menghitung Shannon entropy dari sampel data awal. Jika entropi $\ge 7.6$ bit/byte (mengindikasikan data terenkripsi atau stream kompresi acak), berkas secara otomatis diklasifikasikan sebagai non-kompresibel.
+  - **Dukungan ZIP & 7-Zip Multi-Method**:
+    - Pada arsip ZIP, setiap berkas non-kompresibel otomatis disimpan menggunakan `CompressionMethod::Stored` sementara berkas teks/kode tetap dikompresi dengan `CompressionMethod::Deflated`.
+    - Pada arsip 7-Zip non-solid, berkas bypass disimpan menggunakan method `COPY` (Store), menghemat pemrosesan LZMA2 secara masif.
+  - **Dukungan Penuh GUI & CLI**:
+    - Dialog GUI *Add to Archive*: Checkbox interaktif "⚡ Smart Bypass (High-Speed Archiving)" dengan hover tooltip informatif.
+    - Opsi CLI: Diaktifkan secara default pada `linrar a`, dan dapat dimatikan jika diinginkan melalui flag `--no-smart-bypass`.
+
 

@@ -41,6 +41,12 @@ pub struct Cli {
     #[arg(short = 'z', help = "Read archive comment from file")]
     pub comment_file: Option<PathBuf>,
 
+    #[arg(
+        long = "no-smart-bypass",
+        help = "Disable Smart Bypass (force compressing already-compressed media files)"
+    )]
+    pub no_smart_bypass: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 

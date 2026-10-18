@@ -19,6 +19,7 @@ pub enum DialogState {
         is_solid: bool,
         is_locked: bool,
         comment: String,
+        smart_bypass: bool,
     },
     ExtractArchive {
         archive_path: PathBuf,
@@ -98,6 +99,7 @@ impl DialogState {
             is_solid: false,
             is_locked: false,
             comment: "".to_string(),
+            smart_bypass: true,
         }
     }
 

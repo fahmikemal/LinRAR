@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::core::benchmark::BenchmarkRunner;
+use crate::core::bypass::SmartBypass;
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::detect_archive_type;
 use crate::core::finder::ArchiveFinder;
@@ -714,4 +715,121 @@ fn test_sevenzip_conversion() {
         fs::read_to_string(ext_dir.join("hello.txt")).unwrap(),
         "Hello from LinRAR Pure Rust!"
     );
+}
+
+#[test]
+fn test_smart_bypass_extension_recognition() {
+    assert!(SmartBypass::default_extensions().contains(&"mp4"));
+    assert!(SmartBypass::default_extensions().contains(&"zip"));
+
+    // Incompressible media & archives
+    assert!(SmartBypass::is_incompressible_extension("mp4"));
+    assert!(SmartBypass::is_incompressible_extension(".mkv"));
+    assert!(SmartBypass::is_incompressible_extension("JPG"));
+    assert!(SmartBypass::is_incompressible_extension(".Png"));
+    assert!(SmartBypass::is_incompressible_extension("zip"));
+    assert!(SmartBypass::is_incompressible_extension("7z"));
+    assert!(SmartBypass::is_incompressible_extension("zst"));
+    assert!(SmartBypass::is_incompressible_extension("pdf"));
+    assert!(SmartBypass::is_incompressible_extension("docx"));
+
+    // Compressible documents & code
+    assert!(!SmartBypass::is_incompressible_extension("txt"));
+    assert!(!SmartBypass::is_incompressible_extension("rs"));
+    assert!(!SmartBypass::is_incompressible_extension("json"));
+    assert!(!SmartBypass::is_incompressible_extension("csv"));
+    assert!(!SmartBypass::is_incompressible_extension("log"));
+}
+
+#[test]
+fn test_smart_bypass_entropy_calculation() {
+    // 1. Low entropy (repetitive data)
+    let repetitive = vec![b'A'; 8192];
+    let low_entropy = SmartBypass::calculate_entropy(&repetitive);
+    assert!(low_entropy < 0.1);
+
+    // 2. High entropy (random / encrypted simulation)
+    // Create byte distribution covering all 256 byte values uniformly
+    let mut high_entropy_data = Vec::with_capacity(8192);
+    for i in 0..8192 {
+        high_entropy_data.push((i % 256) as u8);
+    }
+    let high_entropy = SmartBypass::calculate_entropy(&high_entropy_data);
+    assert!(high_entropy >= 7.9);
+
+    // 3. File heuristic test
+    let tmp = tempfile::tempdir().unwrap();
+    let random_file = tmp.path().join("data.unknown_ext");
+    fs::write(&random_file, &high_entropy_data).unwrap();
+    assert!(SmartBypass::should_bypass(&random_file));
+
+    let text_file = tmp.path().join("data.txt");
+    fs::write(
+        &text_file,
+        "This is plain compressible English text repeat. ".repeat(100),
+    )
+    .unwrap();
+    assert!(!SmartBypass::should_bypass(&text_file));
+}
+
+#[test]
+fn test_smart_bypass_zip_compression_behavior() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Create compressible file
+    let text_path = tmp.path().join("compressible.txt");
+    fs::write(
+        &text_path,
+        "Repeatable text data to be deflated. ".repeat(200),
+    )
+    .unwrap();
+
+    // Create incompressible file (.mp4 extension)
+    let video_path = tmp.path().join("recording.mp4");
+    let mut pseudo_video = Vec::with_capacity(4096);
+    for i in 0..4096 {
+        pseudo_video.push(((i * 37 + 13) % 256) as u8);
+    }
+    fs::write(&video_path, &pseudo_video).unwrap();
+
+    let sources = vec![text_path.clone(), video_path.clone()];
+
+    // Case 1: Smart bypass enabled (default)
+    let zip_smart = tmp.path().join("smart_test.zip");
+    let smart_opts = AddOptions {
+        compression_level: CompressionLevel::Normal,
+        smart_bypass: true,
+        ..Default::default()
+    };
+    ZipEngine::create(&zip_smart, &sources, &smart_opts).unwrap();
+
+    let (_, entries_smart) = ZipEngine::read_entries(&zip_smart).unwrap();
+    let text_entry = entries_smart
+        .iter()
+        .find(|e| e.name == "compressible.txt")
+        .unwrap();
+    let video_entry = entries_smart
+        .iter()
+        .find(|e| e.name == "recording.mp4")
+        .unwrap();
+
+    // Text file should be compressed (packed < unpacked)
+    assert!(text_entry.packed_size < text_entry.size);
+    // Video file with smart bypass should be Stored (packed == unpacked)
+    assert_eq!(video_entry.packed_size, video_entry.size);
+
+    // Case 2: Smart bypass disabled (--no-smart-bypass)
+    let zip_no_smart = tmp.path().join("no_smart_test.zip");
+    let no_smart_opts = AddOptions {
+        compression_level: CompressionLevel::Normal,
+        smart_bypass: false,
+        ..Default::default()
+    };
+    ZipEngine::create(&zip_no_smart, &sources, &no_smart_opts).unwrap();
+
+    let file = fs::File::open(&zip_no_smart).unwrap();
+    let mut arch = zip::ZipArchive::new(file).unwrap();
+    let vid_file = arch.by_name("recording.mp4").unwrap();
+    // With smart bypass disabled, the compression method must be Deflated
+    assert_eq!(vid_file.compression(), zip::CompressionMethod::Deflated);
 }

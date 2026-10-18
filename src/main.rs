@@ -52,6 +52,8 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
         None
     };
 
+    let smart_bypass = !args.no_smart_bypass;
+
     let options = AddOptions {
         compression_level,
         password,
@@ -60,6 +62,8 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
         is_solid,
         lock_archive,
         comment,
+        smart_bypass,
+        bypass_extensions: None,
     };
 
     match cmd {

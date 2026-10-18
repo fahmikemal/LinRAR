@@ -103,6 +103,8 @@ pub struct AddOptions {
     pub is_solid: bool,
     pub lock_archive: bool,
     pub comment: Option<String>,
+    pub smart_bypass: bool,
+    pub bypass_extensions: Option<Vec<String>>,
 }
 
 impl Default for AddOptions {
@@ -115,6 +117,8 @@ impl Default for AddOptions {
             is_solid: false,
             lock_archive: false,
             comment: None,
+            smart_bypass: true,
+            bypass_extensions: None,
         }
     }
 }

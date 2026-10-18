@@ -1893,6 +1893,7 @@ impl LinrarApp {
                     is_solid,
                     is_locked: false,
                     comment: "".to_string(),
+                    smart_bypass: true,
                 };
                 return;
             }
@@ -2102,6 +2103,7 @@ impl LinrarApp {
                 is_solid,
                 is_locked,
                 comment,
+                smart_bypass,
             } => {
                 let mut is_open = true;
                 let win_resp = egui::Window::new("Add to Archive")
@@ -2160,6 +2162,8 @@ impl LinrarApp {
                         ui.separator();
                         ui.checkbox(is_solid, "Create solid archive");
                         ui.checkbox(is_locked, "Lock archive");
+                        ui.checkbox(smart_bypass, "⚡ Smart Bypass (High-Speed Archiving)")
+                            .on_hover_text("Bypasses compression for already-compressed files (videos, images, audio, archives) to dramatically speed up archiving.");
 
                         ui.horizontal(|ui| {
                             ui.label("Split to volumes (e.g. 10M, 100M):");
@@ -2202,6 +2206,8 @@ impl LinrarApp {
                                     } else {
                                         Some(comment.clone())
                                     },
+                                    smart_bypass: *smart_bypass,
+                                    bypass_extensions: None,
                                 };
 
                                 let arch_path = PathBuf::from(&archive_name);
@@ -2840,15 +2846,7 @@ impl LinrarApp {
                 }
 
                 if do_convert {
-                    let opts = AddOptions {
-                        compression_level: CompressionLevel::Normal,
-                        password: None,
-                        encrypt_headers: false,
-                        volume_size: None,
-                        is_solid: false,
-                        lock_archive: false,
-                        comment: None,
-                    };
+                    let opts = AddOptions::default();
                     match ArchiveConverter::convert(&src_clone, fmt_clone, &opts) {
                         Ok(out) => {
                             self.dialog_state = DialogState::Message {
