@@ -13,8 +13,8 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Format** | RAR (RAR4 & RAR5 Read) | Pure parsing & UnRAR CLI | **Full** | `rar_parser.rs` + `rar_engine.rs` |
 | **Format** | RAR (Extraction/Creation) | Proprietary RARLAB unrar/rar | **Full** | CLI wrapper `rar_engine.rs` |
 | **Format** | 7-Zip (`.7z`) | LZMA, LZMA2, BCJ2, PPMd | **Planned** | Enum tersedia di `types.rs` |
-| **Format** | Zstandard (`.zst`, `.tar.zst`) | RFC 8878 Zstandard high-speed | **Planned** | Roadmap Fase 1 |
-| **Format** | XZ (`.tar.xz`, `.xz`) | LZMA2 compression | **Planned** | Roadmap Fase 1 |
+| **Format** | Zstandard (`.zst`, `.tar.zst`, `.tzst`) | RFC 8878 Zstandard high-speed | **Full** | `tar_engine.rs` + `zstd` |
+| **Format** | XZ (`.tar.xz`, `.txz`, `.xz`) | LZMA2 compression | **Full** | `tar_engine.rs` + `xz2` |
 | **Format** | Container Images (ISO, DMG, WIM) | Read-only image extraction | **Planned** | Roadmap Fase 1 |
 | **Keamanan** | Enkripsi AES-256 ZIP murni Rust | WinZip AES-256 standard | **Full** | `zip_engine.rs` (`AesMode::Aes256`) |
 | **Keamanan** | Enkripsi Header / Encrypt Filenames | RAR `-hp`, 7z header encryption | **Full** | `rar_engine.rs` (`-hp`) |
@@ -96,3 +96,10 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
   - **Mencegah Archive-Bomb**: Jika arsip berisi berkas-berkas lepas (*loose files*) di root, arsip secara otomatis diekstrak ke dalam subdirektori baru dengan nama arsip (`target/nama_arsip/...`), menjaga kerapian folder tujuan atau Desktop pengguna.
   - **Pembersihan Nama Ekstensi Majemuk**: Penamaan subfolder cerdas membersihkan ekstensi majemuk seperti `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.part01.rar`, `.zip.001`.
   - **Dukungan Penuh GUI & CLI**: Checkbox "Ekstraksi Pintar" diaktifkan secara default pada dialog ekstraksi GUI, serta flag `--smart` pada perintah CLI (`linrar x --smart <archive> [dest]`).
+
+### I. Format Modern Linux: Zstandard (.tar.zst) & XZ (.tar.xz)
+- **Penyempurnaan**:
+  - Mengintegrasikan engine dekompresi dan kompresi streaming murni Rust untuk standar RFC 8878 Zstandard (`zstd`) dan LZMA2 (`xz2`).
+  - Mendukung pembuatan arsip (*create*), pembacaan inventaris entri (*list*), uji integritas (*test archive*), pratinjau instan (*quick look*), ekstraksi cerdas (*smart extraction*), dan konversi (*converter*) untuk berkas `.tar.zst`, `.tzst`, `.tar.xz`, dan `.txz`.
+  - Desain `TarWriter` streaming dengan pemanggilan `.finish()` eksplisit pada encoder untuk menjamin penulisan footer, indeks checksum, dan integritas data format XZ dan Zstandard.
+  - Integrasi opsi format `.tar.xz` dan `.tar.zst` pada dialog GUI "Add to Archive" dan "Convert Archive", serta flag format pada perintah CLI (`linrar a`, `linrar x`, `linrar l`, `linrar t`, `linrar convert`).

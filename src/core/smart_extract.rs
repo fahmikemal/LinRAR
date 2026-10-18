@@ -25,7 +25,8 @@ impl SmartExtractor {
 
         // 1. Compound multi-part tar extensions
         for ext in &[
-            ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4", ".tar.sz",
+            ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4", ".tar.sz", ".tgz", ".tbz2",
+            ".txz", ".tzst",
         ] {
             if lower.ends_with(ext) {
                 return file_name[..file_name.len() - ext.len()].to_string();
@@ -46,7 +47,9 @@ impl SmartExtractor {
         {
             let without_num = &file_name[..file_name.len() - 4];
             let without_lower = without_num.to_lowercase();
-            for ext in &[".zip", ".rar", ".tar.gz", ".tar"] {
+            for ext in &[
+                ".zip", ".rar", ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar",
+            ] {
                 if without_lower.ends_with(ext) {
                     return without_num[..without_num.len() - ext.len()].to_string();
                 }
@@ -135,9 +138,11 @@ impl SmartExtractor {
         let arch_type = detect_archive_type(p);
         let entries = match arch_type {
             ArchiveType::Zip => ZipEngine::read_entries(p).map(|(_, e)| e)?,
-            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
-                TarEngine::read_entries(p, arch_type).map(|(_, e)| e)?
-            }
+            ArchiveType::Tar
+            | ArchiveType::TarGz
+            | ArchiveType::TarBz2
+            | ArchiveType::TarXz
+            | ArchiveType::TarZst => TarEngine::read_entries(p, arch_type).map(|(_, e)| e)?,
             ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(p).map(|(_, e)| e)?,
             _ => return Err("Unsupported archive format for smart extraction".to_string()),
         };
@@ -147,9 +152,11 @@ impl SmartExtractor {
 
         match arch_type {
             ArchiveType::Zip => ZipEngine::extract(p, &target_dir, None, password)?,
-            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
-                TarEngine::extract(p, &target_dir, arch_type, None)?
-            }
+            ArchiveType::Tar
+            | ArchiveType::TarGz
+            | ArchiveType::TarBz2
+            | ArchiveType::TarXz
+            | ArchiveType::TarZst => TarEngine::extract(p, &target_dir, arch_type, None)?,
             _ => RarEngine::extract(p, &target_dir, None, password)?,
         }
 

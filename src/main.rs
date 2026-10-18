@@ -73,15 +73,11 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             );
             let res = match arch_type {
                 ArchiveType::Zip => ZipEngine::create(&arch_path, &sources, &options),
-                ArchiveType::TarGz => {
-                    TarEngine::create(&arch_path, &sources, ArchiveType::TarGz, &options)
-                }
-                ArchiveType::TarBz2 => {
-                    TarEngine::create(&arch_path, &sources, ArchiveType::TarBz2, &options)
-                }
-                ArchiveType::Tar => {
-                    TarEngine::create(&arch_path, &sources, ArchiveType::Tar, &options)
-                }
+                ArchiveType::TarGz
+                | ArchiveType::TarBz2
+                | ArchiveType::TarXz
+                | ArchiveType::TarZst
+                | ArchiveType::Tar => TarEngine::create(&arch_path, &sources, arch_type, &options),
                 _ => RarEngine::create(&arch_path, &sources, &options),
             };
 
@@ -114,7 +110,11 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             let dest_path = if smart {
                 let entries_res = match arch_type {
                     ArchiveType::Zip => ZipEngine::read_entries(&arch_path).map(|(_, e)| e),
-                    ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
+                    ArchiveType::Tar
+                    | ArchiveType::TarGz
+                    | ArchiveType::TarBz2
+                    | ArchiveType::TarXz
+                    | ArchiveType::TarZst => {
                         TarEngine::read_entries(&arch_path, arch_type).map(|(_, e)| e)
                     }
                     _ => RarEngine::read_entries(&arch_path).map(|(_, e)| e),
@@ -160,14 +160,12 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 ArchiveType::Zip => {
                     ZipEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref())
                 }
-                ArchiveType::TarGz => {
-                    TarEngine::extract(&arch_path, &dest_path, ArchiveType::TarGz, selected)
-                }
-                ArchiveType::TarBz2 => {
-                    TarEngine::extract(&arch_path, &dest_path, ArchiveType::TarBz2, selected)
-                }
-                ArchiveType::Tar => {
-                    TarEngine::extract(&arch_path, &dest_path, ArchiveType::Tar, selected)
+                ArchiveType::TarGz
+                | ArchiveType::TarBz2
+                | ArchiveType::TarXz
+                | ArchiveType::TarZst
+                | ArchiveType::Tar => {
+                    TarEngine::extract(&arch_path, &dest_path, arch_type, selected)
                 }
                 _ => RarEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref()),
             };
@@ -214,9 +212,11 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
 
             let res = match arch_type {
                 ArchiveType::Zip => ZipEngine::read_entries(&arch_path),
-                ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
-                    TarEngine::read_entries(&arch_path, arch_type)
-                }
+                ArchiveType::TarGz
+                | ArchiveType::TarBz2
+                | ArchiveType::TarXz
+                | ArchiveType::TarZst
+                | ArchiveType::Tar => TarEngine::read_entries(&arch_path, arch_type),
                 _ => RarEngine::read_entries(&arch_path),
             };
 
@@ -255,9 +255,11 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             println!("LinRAR 0.1.0 - Testing archive integrity: {}", archive);
             let res = match arch_type {
                 ArchiveType::Zip => ZipEngine::test(&arch_path, args.password.as_deref()),
-                ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
-                    TarEngine::test(&arch_path, arch_type)
-                }
+                ArchiveType::TarGz
+                | ArchiveType::TarBz2
+                | ArchiveType::TarXz
+                | ArchiveType::TarZst
+                | ArchiveType::Tar => TarEngine::test(&arch_path, arch_type),
                 _ => RarEngine::test(&arch_path),
             };
             match res {
@@ -394,11 +396,13 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 "zip" => ArchiveType::Zip,
                 "tar.gz" | "tgz" => ArchiveType::TarGz,
                 "tar.bz2" | "tbz2" => ArchiveType::TarBz2,
+                "tar.xz" | "txz" | "xz" => ArchiveType::TarXz,
+                "tar.zst" | "tzst" | "zst" => ArchiveType::TarZst,
                 "tar" => ArchiveType::Tar,
                 "rar" => ArchiveType::Rar5,
                 _ => {
                     eprintln!(
-                        "Unsupported target format '{}'. Choose from: zip, rar, tar, tar.gz, tar.bz2",
+                        "Unsupported target format '{}'. Choose from: zip, rar, tar, tar.gz, tar.bz2, tar.xz, tar.zst",
                         target_format
                     );
                     std::process::exit(1);

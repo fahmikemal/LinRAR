@@ -39,13 +39,19 @@ fn test_magic_detection() {
     let (tmp, sources) = setup_test_files();
     let zip_path = tmp.path().join("test.zip");
     let targz_path = tmp.path().join("test.tar.gz");
+    let tarxz_path = tmp.path().join("test.tar.xz");
+    let tarzst_path = tmp.path().join("test.tar.zst");
 
     let opts = AddOptions::default();
     ZipEngine::create(&zip_path, &sources, &opts).unwrap();
     TarEngine::create(&targz_path, &sources, ArchiveType::TarGz, &opts).unwrap();
+    TarEngine::create(&tarxz_path, &sources, ArchiveType::TarXz, &opts).unwrap();
+    TarEngine::create(&tarzst_path, &sources, ArchiveType::TarZst, &opts).unwrap();
 
     assert_eq!(detect_archive_type(&zip_path), ArchiveType::Zip);
     assert_eq!(detect_archive_type(&targz_path), ArchiveType::TarGz);
+    assert_eq!(detect_archive_type(&tarxz_path), ArchiveType::TarXz);
+    assert_eq!(detect_archive_type(&tarzst_path), ArchiveType::TarZst);
 }
 
 #[test]
@@ -504,4 +510,106 @@ fn test_smart_extractor_lifecycle() {
     assert_eq!(final_dir, extract_base.join("loose_payload"));
     assert!(final_dir.join("doc1.txt").exists());
     assert!(final_dir.join("doc2.txt").exists());
+}
+
+#[test]
+fn test_tar_xz_lifecycle() {
+    let (tmp, sources) = setup_test_files();
+    let tarxz_path = tmp.path().join("test_lifecycle.tar.xz");
+    let extract_dir = tmp.path().join("tarxz_out");
+
+    let opts = AddOptions {
+        compression_level: CompressionLevel::Normal,
+        ..Default::default()
+    };
+    TarEngine::create(&tarxz_path, &sources, ArchiveType::TarXz, &opts).unwrap();
+    assert!(tarxz_path.exists());
+
+    // Verify magic bytes detection
+    assert_eq!(detect_archive_type(&tarxz_path), ArchiveType::TarXz);
+
+    // Test integrity
+    assert!(TarEngine::test(&tarxz_path, ArchiveType::TarXz).unwrap());
+
+    // Read entries
+    let (info, entries) = TarEngine::read_entries(&tarxz_path, ArchiveType::TarXz).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::TarXz);
+    assert!(entries.iter().any(|e| e.name == "hello.txt"));
+    assert!(entries.iter().any(|e| e.name == "data.json"));
+
+    // Extract
+    TarEngine::extract(&tarxz_path, &extract_dir, ArchiveType::TarXz, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("subfolder").join("nested.txt")).unwrap(),
+        "Nested content for directory testing"
+    );
+}
+
+#[test]
+fn test_tar_zst_lifecycle() {
+    let (tmp, sources) = setup_test_files();
+    let tarzst_path = tmp.path().join("test_lifecycle.tar.zst");
+    let extract_dir = tmp.path().join("tarzst_out");
+
+    let opts = AddOptions {
+        compression_level: CompressionLevel::Good,
+        ..Default::default()
+    };
+    TarEngine::create(&tarzst_path, &sources, ArchiveType::TarZst, &opts).unwrap();
+    assert!(tarzst_path.exists());
+
+    // Verify magic bytes detection
+    assert_eq!(detect_archive_type(&tarzst_path), ArchiveType::TarZst);
+
+    // Test integrity
+    assert!(TarEngine::test(&tarzst_path, ArchiveType::TarZst).unwrap());
+
+    // Read entries
+    let (info, entries) = TarEngine::read_entries(&tarzst_path, ArchiveType::TarZst).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::TarZst);
+    assert!(entries.iter().any(|e| e.name == "hello.txt"));
+    assert!(entries.iter().any(|e| e.name == "data.json"));
+
+    // Extract
+    TarEngine::extract(&tarzst_path, &extract_dir, ArchiveType::TarZst, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("subfolder").join("nested.txt")).unwrap(),
+        "Nested content for directory testing"
+    );
+}
+
+#[test]
+fn test_tar_modern_conversion() {
+    let (tmp, sources) = setup_test_files();
+    let zst_src = tmp.path().join("convert_source.tar.zst");
+    TarEngine::create(
+        &zst_src,
+        &sources,
+        ArchiveType::TarZst,
+        &AddOptions::default(),
+    )
+    .unwrap();
+
+    // Convert .tar.zst -> .tar.xz
+    let converted_xz =
+        ArchiveConverter::convert(&zst_src, ArchiveType::TarXz, &AddOptions::default()).unwrap();
+
+    assert!(converted_xz.exists());
+    assert_eq!(detect_archive_type(&converted_xz), ArchiveType::TarXz);
+
+    // Extract converted .tar.xz to verify data preserved 100%
+    let ext_dir = tmp.path().join("converted_xz_out");
+    TarEngine::extract(&converted_xz, &ext_dir, ArchiveType::TarXz, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(ext_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
 }

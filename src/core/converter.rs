@@ -1,5 +1,6 @@
 use crate::core::detector::detect_archive_type;
 use crate::core::rar_engine::RarEngine;
+use crate::core::smart_extract::SmartExtractor;
 use crate::core::tar_engine::TarEngine;
 use crate::core::zip_engine::ZipEngine;
 use crate::types::{AddOptions, ArchiveType};
@@ -32,9 +33,11 @@ impl ArchiveConverter {
             ArchiveType::Zip => {
                 ZipEngine::extract(src, &temp_dir, None, options.password.as_deref())
             }
-            ArchiveType::TarGz => TarEngine::extract(src, &temp_dir, ArchiveType::TarGz, None),
-            ArchiveType::TarBz2 => TarEngine::extract(src, &temp_dir, ArchiveType::TarBz2, None),
-            ArchiveType::Tar => TarEngine::extract(src, &temp_dir, ArchiveType::Tar, None),
+            ArchiveType::Tar
+            | ArchiveType::TarGz
+            | ArchiveType::TarBz2
+            | ArchiveType::TarXz
+            | ArchiveType::TarZst => TarEngine::extract(src, &temp_dir, src_type, None),
             _ => RarEngine::extract(src, &temp_dir, None, options.password.as_deref()),
         };
 
@@ -44,7 +47,7 @@ impl ArchiveConverter {
         }
 
         // 2. Determine target path
-        let file_stem = src.file_stem().unwrap_or_default().to_string_lossy();
+        let file_stem = SmartExtractor::get_clean_archive_stem(src);
         let target_ext = target_format.default_extension();
         let target_path = src
             .parent()
@@ -62,14 +65,12 @@ impl ArchiveConverter {
         // 3. Compress into target format
         let comp_res = match target_format {
             ArchiveType::Zip => ZipEngine::create(&target_path, &extracted_items, options),
-            ArchiveType::TarGz => {
-                TarEngine::create(&target_path, &extracted_items, ArchiveType::TarGz, options)
-            }
-            ArchiveType::TarBz2 => {
-                TarEngine::create(&target_path, &extracted_items, ArchiveType::TarBz2, options)
-            }
-            ArchiveType::Tar => {
-                TarEngine::create(&target_path, &extracted_items, ArchiveType::Tar, options)
+            ArchiveType::Tar
+            | ArchiveType::TarGz
+            | ArchiveType::TarBz2
+            | ArchiveType::TarXz
+            | ArchiveType::TarZst => {
+                TarEngine::create(&target_path, &extracted_items, target_format, options)
             }
             _ => RarEngine::create(&target_path, &extracted_items, options),
         };

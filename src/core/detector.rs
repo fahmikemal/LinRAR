@@ -10,6 +10,8 @@ const ZIP_EMPTY_MAGIC: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
 const SEVEN_ZIP_MAGIC: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 const GZIP_MAGIC: &[u8] = &[0x1F, 0x8B];
 const BZIP2_MAGIC: &[u8] = &[0x42, 0x5A, 0x68];
+const XZ_MAGIC: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+const ZSTD_MAGIC: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 
 pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
     let path = path.as_ref();
@@ -20,6 +22,16 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
         ArchiveType::TarGz
     } else if name_lower.ends_with(".tar.bz2") || name_lower.ends_with(".tbz2") {
         ArchiveType::TarBz2
+    } else if name_lower.ends_with(".tar.xz")
+        || name_lower.ends_with(".txz")
+        || name_lower.ends_with(".xz")
+    {
+        ArchiveType::TarXz
+    } else if name_lower.ends_with(".tar.zst")
+        || name_lower.ends_with(".tzst")
+        || name_lower.ends_with(".zst")
+    {
+        ArchiveType::TarZst
     } else if name_lower.ends_with(".tar") {
         ArchiveType::Tar
     } else if name_lower.ends_with(".rar") {
@@ -55,6 +67,14 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
 
     if bytes_read >= 6 && header.starts_with(SEVEN_ZIP_MAGIC) {
         return ArchiveType::SevenZip;
+    }
+
+    if bytes_read >= 6 && header.starts_with(XZ_MAGIC) {
+        return ArchiveType::TarXz;
+    }
+
+    if bytes_read >= 4 && header.starts_with(ZSTD_MAGIC) {
+        return ArchiveType::TarZst;
     }
 
     if bytes_read >= 2 && header.starts_with(GZIP_MAGIC) {

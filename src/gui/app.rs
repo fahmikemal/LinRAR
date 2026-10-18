@@ -152,9 +152,11 @@ impl LinrarApp {
         let result = match arch_type {
             ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(path),
             ArchiveType::Zip => ZipEngine::read_entries(path),
-            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
-                TarEngine::read_entries(path, arch_type)
-            }
+            ArchiveType::Tar
+            | ArchiveType::TarGz
+            | ArchiveType::TarBz2
+            | ArchiveType::TarXz
+            | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
             _ => Err("Unsupported archive format".to_string()),
         };
 
@@ -1378,9 +1380,11 @@ impl LinrarApp {
                 let arch_type = detect_archive_type(&path);
                 let res = match arch_type {
                     ArchiveType::Zip => ZipEngine::test(&path, None),
-                    ArchiveType::TarGz | ArchiveType::TarBz2 | ArchiveType::Tar => {
-                        TarEngine::test(&path, arch_type)
-                    }
+                    ArchiveType::TarGz
+                    | ArchiveType::TarBz2
+                    | ArchiveType::TarXz
+                    | ArchiveType::TarZst
+                    | ArchiveType::Tar => TarEngine::test(&path, arch_type),
                     _ => RarEngine::test(&path),
                 };
 
@@ -1515,9 +1519,11 @@ impl LinrarApp {
                     let result = match arch_type {
                         ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(path),
                         ArchiveType::Zip => ZipEngine::read_entries(path),
-                        ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
-                            TarEngine::read_entries(path, arch_type)
-                        }
+                        ArchiveType::Tar
+                        | ArchiveType::TarGz
+                        | ArchiveType::TarBz2
+                        | ArchiveType::TarXz
+                        | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
                         _ => Err("Unsupported archive format".to_string()),
                     };
                     match result {
@@ -1550,7 +1556,11 @@ impl LinrarApp {
                                 RarEngine::read_entries(selected_path)
                             }
                             ArchiveType::Zip => ZipEngine::read_entries(selected_path),
-                            ArchiveType::Tar | ArchiveType::TarGz | ArchiveType::TarBz2 => {
+                            ArchiveType::Tar
+                            | ArchiveType::TarGz
+                            | ArchiveType::TarBz2
+                            | ArchiveType::TarXz
+                            | ArchiveType::TarZst => {
                                 TarEngine::read_entries(selected_path, arch_type)
                             }
                             _ => Err("Unsupported archive format".to_string()),
@@ -1776,20 +1786,12 @@ impl LinrarApp {
                         ArchiveType::Zip => {
                             ZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
                         }
-                        ArchiveType::TarGz => TarEngine::extract(
-                            arch,
-                            &temp_dir,
-                            ArchiveType::TarGz,
-                            Some(files_slice),
-                        ),
-                        ArchiveType::TarBz2 => TarEngine::extract(
-                            arch,
-                            &temp_dir,
-                            ArchiveType::TarBz2,
-                            Some(files_slice),
-                        ),
-                        ArchiveType::Tar => {
-                            TarEngine::extract(arch, &temp_dir, ArchiveType::Tar, Some(files_slice))
+                        ArchiveType::Tar
+                        | ArchiveType::TarGz
+                        | ArchiveType::TarBz2
+                        | ArchiveType::TarXz
+                        | ArchiveType::TarZst => {
+                            TarEngine::extract(arch, &temp_dir, arch_type, Some(files_slice))
                         }
                         _ => RarEngine::extract(arch, &temp_dir, Some(files_slice), None),
                     };
@@ -2108,10 +2110,13 @@ impl LinrarApp {
 
                         ui.separator();
                         ui.label("Archive Format:");
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.radio_value(format, ArchiveType::Rar5, "RAR");
                             ui.radio_value(format, ArchiveType::Zip, "ZIP");
                             ui.radio_value(format, ArchiveType::TarGz, "TAR.GZ");
+                            ui.radio_value(format, ArchiveType::TarBz2, "TAR.BZ2");
+                            ui.radio_value(format, ArchiveType::TarXz, "TAR.XZ");
+                            ui.radio_value(format, ArchiveType::TarZst, "TAR.ZST");
                         });
 
                         ui.separator();
@@ -2196,12 +2201,13 @@ impl LinrarApp {
                                     ArchiveType::Zip => {
                                         ZipEngine::create(&arch_path, sources, &opts)
                                     }
-                                    ArchiveType::TarGz => TarEngine::create(
-                                        &arch_path,
-                                        sources,
-                                        ArchiveType::TarGz,
-                                        &opts,
-                                    ),
+                                    ArchiveType::Tar
+                                    | ArchiveType::TarGz
+                                    | ArchiveType::TarBz2
+                                    | ArchiveType::TarXz
+                                    | ArchiveType::TarZst => {
+                                        TarEngine::create(&arch_path, sources, *format, &opts)
+                                    }
                                     _ => Err("Unsupported format".to_string()),
                                 };
 
@@ -2287,7 +2293,9 @@ impl LinrarApp {
                                         }
                                         ArchiveType::Tar
                                         | ArchiveType::TarGz
-                                        | ArchiveType::TarBz2 => {
+                                        | ArchiveType::TarBz2
+                                        | ArchiveType::TarXz
+                                        | ArchiveType::TarZst => {
                                             TarEngine::read_entries(&archive_path, arch_type)
                                                 .map(|(_, e)| e)
                                         }
@@ -2316,24 +2324,13 @@ impl LinrarApp {
                                     ArchiveType::Zip => {
                                         ZipEngine::extract(archive_path, &dest, None, pwd)
                                     }
-                                    ArchiveType::TarGz => TarEngine::extract(
-                                        archive_path,
-                                        &dest,
-                                        ArchiveType::TarGz,
-                                        None,
-                                    ),
-                                    ArchiveType::TarBz2 => TarEngine::extract(
-                                        archive_path,
-                                        &dest,
-                                        ArchiveType::TarBz2,
-                                        None,
-                                    ),
-                                    ArchiveType::Tar => TarEngine::extract(
-                                        archive_path,
-                                        &dest,
-                                        ArchiveType::Tar,
-                                        None,
-                                    ),
+                                    ArchiveType::Tar
+                                    | ArchiveType::TarGz
+                                    | ArchiveType::TarBz2
+                                    | ArchiveType::TarXz
+                                    | ArchiveType::TarZst => {
+                                        TarEngine::extract(archive_path, &dest, arch_type, None)
+                                    }
                                     _ => Err("Unsupported format".to_string()),
                                 };
 
@@ -2785,6 +2782,16 @@ impl LinrarApp {
                             target_format,
                             ArchiveType::TarBz2,
                             "BZip2 TAR Archive (.tar.bz2)",
+                        );
+                        ui.radio_value(
+                            target_format,
+                            ArchiveType::TarXz,
+                            "XZ TAR Archive (.tar.xz)",
+                        );
+                        ui.radio_value(
+                            target_format,
+                            ArchiveType::TarZst,
+                            "Zstandard TAR Archive (.tar.zst)",
                         );
                         ui.radio_value(
                             target_format,

@@ -8,15 +8,72 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tar::{Archive, Builder};
+use xz2::read::XzDecoder;
+use xz2::write::XzEncoder;
 
 use crate::core::volume::VolumeManager;
 use crate::types::{
     AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel, format_unix_mode,
 };
 
+pub enum TarWriter<W: Write> {
+    Plain(W),
+    Gz(GzEncoder<W>),
+    Bz2(BzEncoder<W>),
+    Xz(XzEncoder<W>),
+    Zstd(zstd::stream::write::Encoder<'static, W>),
+}
+
+impl<W: Write> Write for TarWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            TarWriter::Plain(w) => w.write(buf),
+            TarWriter::Gz(w) => w.write(buf),
+            TarWriter::Bz2(w) => w.write(buf),
+            TarWriter::Xz(w) => w.write(buf),
+            TarWriter::Zstd(w) => w.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            TarWriter::Plain(w) => w.flush(),
+            TarWriter::Gz(w) => w.flush(),
+            TarWriter::Bz2(w) => w.flush(),
+            TarWriter::Xz(w) => w.flush(),
+            TarWriter::Zstd(w) => w.flush(),
+        }
+    }
+}
+
+impl<W: Write> TarWriter<W> {
+    pub fn finish(self) -> Result<(), String> {
+        match self {
+            TarWriter::Plain(mut w) => w.flush().map_err(|e| e.to_string()),
+            TarWriter::Gz(w) => w.finish().map(|_| ()).map_err(|e| e.to_string()),
+            TarWriter::Bz2(w) => w.finish().map(|_| ()).map_err(|e| e.to_string()),
+            TarWriter::Xz(w) => w.finish().map(|_| ()).map_err(|e| e.to_string()),
+            TarWriter::Zstd(w) => w.finish().map(|_| ()).map_err(|e| e.to_string()),
+        }
+    }
+}
+
 pub struct TarEngine;
 
 impl TarEngine {
+    fn get_reader(file: File, archive_type: ArchiveType) -> Result<Box<dyn Read>, String> {
+        match archive_type {
+            ArchiveType::TarGz => Ok(Box::new(GzDecoder::new(file))),
+            ArchiveType::TarBz2 => Ok(Box::new(BzDecoder::new(file))),
+            ArchiveType::TarXz => Ok(Box::new(XzDecoder::new(file))),
+            ArchiveType::TarZst => match zstd::stream::read::Decoder::new(file) {
+                Ok(d) => Ok(Box::new(d)),
+                Err(e) => Err(format!("Zstandard decoder error: {e}")),
+            },
+            _ => Ok(Box::new(file)),
+        }
+    }
+
     pub fn read_entries<P: AsRef<Path>>(
         path: P,
         archive_type: ArchiveType,
@@ -30,12 +87,7 @@ impl TarEngine {
         let mut total_files = 0;
         let mut total_folders = 0;
 
-        let boxed_reader: Box<dyn Read> = match archive_type {
-            ArchiveType::TarGz => Box::new(GzDecoder::new(file)),
-            ArchiveType::TarBz2 => Box::new(BzDecoder::new(file)),
-            _ => Box::new(file),
-        };
-
+        let boxed_reader = Self::get_reader(file, archive_type)?;
         let mut archive = Archive::new(boxed_reader);
         let tar_entries = archive.entries().map_err(|e| e.to_string())?;
 
@@ -116,12 +168,7 @@ impl TarEngine {
         let dest = dest_dir.as_ref();
         fs::create_dir_all(dest).map_err(|e| e.to_string())?;
 
-        let boxed_reader: Box<dyn Read> = match archive_type {
-            ArchiveType::TarGz => Box::new(GzDecoder::new(file)),
-            ArchiveType::TarBz2 => Box::new(BzDecoder::new(file)),
-            _ => Box::new(file),
-        };
-
+        let boxed_reader = Self::get_reader(file, archive_type)?;
         let mut archive = Archive::new(boxed_reader);
         let entries = archive.entries().map_err(|e| e.to_string())?;
 
@@ -148,6 +195,14 @@ impl TarEngine {
                     fs::create_dir_all(p).map_err(|e| e.to_string())?;
                 }
                 entry.unpack(&outpath).map_err(|e| e.to_string())?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(mode) = entry.header().mode() {
+                        let _ = fs::set_permissions(&outpath, fs::Permissions::from_mode(mode));
+                    }
+                }
             }
         }
 
@@ -175,13 +230,34 @@ impl TarEngine {
             _ => BzCompression::default(),
         };
 
-        let boxed_writer: Box<dyn Write> = match archive_type {
-            ArchiveType::TarGz => Box::new(GzEncoder::new(file, gz_comp)),
-            ArchiveType::TarBz2 => Box::new(BzEncoder::new(file, bz_comp)),
-            _ => Box::new(file),
+        let xz_level = match options.compression_level {
+            CompressionLevel::Store | CompressionLevel::Fastest => 1,
+            CompressionLevel::Fast => 2,
+            CompressionLevel::Normal => 6,
+            CompressionLevel::Good => 7,
+            CompressionLevel::Best => 9,
         };
 
-        let mut builder = Builder::new(boxed_writer);
+        let zstd_level = match options.compression_level {
+            CompressionLevel::Store | CompressionLevel::Fastest => 1,
+            CompressionLevel::Fast => 2,
+            CompressionLevel::Normal => 3,
+            CompressionLevel::Good => 9,
+            CompressionLevel::Best => 19,
+        };
+
+        let tar_writer = match archive_type {
+            ArchiveType::TarGz => TarWriter::Gz(GzEncoder::new(file, gz_comp)),
+            ArchiveType::TarBz2 => TarWriter::Bz2(BzEncoder::new(file, bz_comp)),
+            ArchiveType::TarXz => TarWriter::Xz(XzEncoder::new(file, xz_level)),
+            ArchiveType::TarZst => match zstd::stream::write::Encoder::new(file, zstd_level) {
+                Ok(enc) => TarWriter::Zstd(enc),
+                Err(e) => return Err(e.to_string()),
+            },
+            _ => TarWriter::Plain(file),
+        };
+
+        let mut builder = Builder::new(tar_writer);
 
         for src in source_paths {
             if !src.exists() {
@@ -202,6 +278,8 @@ impl TarEngine {
         }
 
         builder.finish().map_err(|e| e.to_string())?;
+        let writer = builder.into_inner().map_err(|e| e.to_string())?;
+        writer.finish()?;
 
         // If volume_size is specified, split into chunk volumes
         if let Some(vol_str) = &options.volume_size
@@ -222,13 +300,7 @@ impl TarEngine {
         archive_type: ArchiveType,
     ) -> Result<bool, String> {
         let file = File::open(archive_path.as_ref()).map_err(|e| e.to_string())?;
-
-        let boxed_reader: Box<dyn Read> = match archive_type {
-            ArchiveType::TarGz => Box::new(GzDecoder::new(file)),
-            ArchiveType::TarBz2 => Box::new(BzDecoder::new(file)),
-            _ => Box::new(file),
-        };
-
+        let boxed_reader = Self::get_reader(file, archive_type)?;
         let mut archive = Archive::new(boxed_reader);
         let tar_entries = archive.entries().map_err(|e| e.to_string())?;
 
