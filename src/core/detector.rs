@@ -38,6 +38,8 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
         ArchiveType::Rar5
     } else if name_lower.ends_with(".7z") {
         ArchiveType::SevenZip
+    } else if name_lower.ends_with(".iso") {
+        ArchiveType::Iso
     } else {
         ArchiveType::Unknown
     };
@@ -119,6 +121,19 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
                 return ArchiveType::Rar4;
             }
         }
+    }
+
+    // Check ISO 9660 magic at Sector 16 (offset 32768)
+    use std::io::Seek;
+    if file.seek(std::io::SeekFrom::Start(32768)).is_ok() {
+        let mut iso_hdr = [0u8; 6];
+        if file.read_exact(&mut iso_hdr).is_ok() && &iso_hdr[1..6] == b"CD001" {
+            return ArchiveType::Iso;
+        }
+    }
+
+    if from_extension != ArchiveType::Unknown {
+        return from_extension;
     }
 
     ArchiveType::Unknown

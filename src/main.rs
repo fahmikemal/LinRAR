@@ -12,6 +12,7 @@ use crate::core::benchmark::BenchmarkRunner;
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::detect_archive_type;
 use crate::core::finder::ArchiveFinder;
+use crate::core::iso_engine::IsoEngine;
 use crate::core::rar_engine::RarEngine;
 use crate::core::repair::ArchiveRepair;
 use crate::core::report::{ArchiveReport, ReportFormat};
@@ -83,6 +84,12 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 archive
             );
             let res = match arch_type {
+                ArchiveType::Iso => {
+                    eprintln!(
+                        "Error: ISO images are read-only container images and cannot be created with 'add'."
+                    );
+                    std::process::exit(1);
+                }
                 ArchiveType::Zip => ZipEngine::create(&arch_path, &sources, &options),
                 ArchiveType::TarGz
                 | ArchiveType::TarBz2
@@ -165,6 +172,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                         SevenZipEngine::read_entries(&arch_path, args.password.as_deref())
                             .map(|(_, e)| e)
                     }
+                    ArchiveType::Iso => IsoEngine::read_entries(&arch_path).map(|(_, e)| e),
                     _ => RarEngine::read_entries(&arch_path).map(|(_, e)| e),
                 };
                 match entries_res {
@@ -221,6 +229,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     selected,
                     args.password.as_deref(),
                 ),
+                ArchiveType::Iso => IsoEngine::extract(&arch_path, &dest_path, selected),
                 _ => RarEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref()),
             };
 
@@ -274,6 +283,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 ArchiveType::SevenZip => {
                     SevenZipEngine::read_entries(&arch_path, args.password.as_deref())
                 }
+                ArchiveType::Iso => IsoEngine::read_entries(&arch_path),
                 _ => RarEngine::read_entries(&arch_path),
             };
 
@@ -318,6 +328,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 | ArchiveType::TarZst
                 | ArchiveType::Tar => TarEngine::test(&arch_path, arch_type),
                 ArchiveType::SevenZip => SevenZipEngine::test(&arch_path, args.password.as_deref()),
+                ArchiveType::Iso => IsoEngine::test(&arch_path),
                 _ => RarEngine::test(&arch_path),
             };
             match res {

@@ -6,6 +6,7 @@ use crate::core::bypass::SmartBypass;
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::detect_archive_type;
 use crate::core::finder::ArchiveFinder;
+use crate::core::iso_engine::IsoEngine;
 use crate::core::rar_engine::RarEngine;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::VirusScanner;
@@ -921,4 +922,231 @@ fn test_archive_creation_with_shred() {
         fs::read_to_string(unpack_dir.join("archive_me_then_shred.txt")).unwrap(),
         "Document to be safely shredded after archive"
     );
+}
+
+fn synthesize_test_iso(path: &std::path::Path) {
+    let sector_size = 2048;
+    let total_sectors = 22;
+    let mut data = vec![0u8; total_sectors * sector_size];
+
+    // Sector 16: Primary Volume Descriptor (PVD)
+    let pvd = &mut data[16 * sector_size..17 * sector_size];
+    pvd[0] = 1; // PVD
+    pvd[1..6].copy_from_slice(b"CD001");
+    pvd[6] = 1;
+    let sys_id = b"LINRAR_ISO_SYS";
+    pvd[8..8 + sys_id.len()].copy_from_slice(sys_id);
+    let vol_id = b"TEST_VOLUME";
+    pvd[40..40 + vol_id.len()].copy_from_slice(vol_id);
+    pvd[80..84].copy_from_slice(&(total_sectors as u32).to_le_bytes());
+    pvd[84..88].copy_from_slice(&(total_sectors as u32).to_be_bytes());
+    pvd[120..122].copy_from_slice(&1u16.to_le_bytes());
+    pvd[122..124].copy_from_slice(&1u16.to_be_bytes());
+    pvd[124..126].copy_from_slice(&1u16.to_le_bytes());
+    pvd[126..128].copy_from_slice(&1u16.to_be_bytes());
+    pvd[128..130].copy_from_slice(&2048u16.to_le_bytes());
+    pvd[130..132].copy_from_slice(&2048u16.to_be_bytes());
+
+    // Root directory record in PVD
+    pvd[156] = 34; // record length
+    pvd[157] = 0;
+    pvd[158..162].copy_from_slice(&18u32.to_le_bytes()); // Root LBA = 18
+    pvd[162..166].copy_from_slice(&18u32.to_be_bytes());
+    pvd[166..170].copy_from_slice(&2048u32.to_le_bytes()); // Root Len = 2048
+    pvd[170..174].copy_from_slice(&2048u32.to_be_bytes());
+    pvd[174..181].copy_from_slice(&[126, 10, 19, 7, 0, 0, 0]); // 2026-10-19
+    pvd[181] = 0x02; // Directory flag
+    pvd[188] = 1; // len_fi
+    pvd[189] = 0; // self
+
+    // Sector 17: Terminator
+    let term = &mut data[17 * sector_size..18 * sector_size];
+    term[0] = 255;
+    term[1..6].copy_from_slice(b"CD001");
+    term[6] = 1;
+
+    fn write_record(
+        buf: &mut [u8],
+        pos: usize,
+        lba: u32,
+        data_len: u32,
+        is_dir: bool,
+        name: &[u8],
+    ) -> usize {
+        let name_len = name.len();
+        let mut rec_len = 33 + name_len;
+        if rec_len % 2 != 0 {
+            rec_len += 1;
+        }
+        buf[pos] = rec_len as u8;
+        buf[pos + 1] = 0;
+        buf[pos + 2..pos + 6].copy_from_slice(&lba.to_le_bytes());
+        buf[pos + 6..pos + 10].copy_from_slice(&lba.to_be_bytes());
+        buf[pos + 10..pos + 14].copy_from_slice(&data_len.to_le_bytes());
+        buf[pos + 14..pos + 18].copy_from_slice(&data_len.to_be_bytes());
+        buf[pos + 18..pos + 25].copy_from_slice(&[126, 10, 19, 7, 0, 0, 0]);
+        buf[pos + 25] = if is_dir { 0x02 } else { 0x00 };
+        buf[pos + 28..pos + 30].copy_from_slice(&1u16.to_le_bytes());
+        buf[pos + 30..pos + 32].copy_from_slice(&1u16.to_be_bytes());
+        buf[pos + 32] = name_len as u8;
+        buf[pos + 33..pos + 33 + name_len].copy_from_slice(name);
+        rec_len
+    }
+
+    // Sector 18: Root Directory Records
+    let root = &mut data[18 * sector_size..19 * sector_size];
+    let mut pos = 0;
+    pos += write_record(root, pos, 18, 2048, true, &[0]); // .
+    pos += write_record(root, pos, 18, 2048, true, &[1]); // ..
+    let file1_content = b"Hello ISO 9660 from LinRAR!";
+    pos += write_record(
+        root,
+        pos,
+        19,
+        file1_content.len() as u32,
+        false,
+        b"HELLO.TXT;1",
+    );
+    let _ = write_record(root, pos, 20, 2048, true, b"SUBDIR");
+
+    // Sector 19: File 1 content
+    let s19 = &mut data[19 * sector_size..20 * sector_size];
+    s19[..file1_content.len()].copy_from_slice(file1_content);
+
+    // Sector 20: Subdirectory records
+    let sub = &mut data[20 * sector_size..21 * sector_size];
+    let mut spos = 0;
+    spos += write_record(sub, spos, 20, 2048, true, &[0]); // .
+    spos += write_record(sub, spos, 18, 2048, true, &[1]); // ..
+    let nested_content = b"Nested file in ISO container";
+    let _ = write_record(
+        sub,
+        spos,
+        21,
+        nested_content.len() as u32,
+        false,
+        b"NESTED.DAT;1",
+    );
+
+    // Sector 21: Nested file content
+    let s21 = &mut data[21 * sector_size..22 * sector_size];
+    s21[..nested_content.len()].copy_from_slice(nested_content);
+
+    fs::write(path, data).unwrap();
+}
+
+#[test]
+fn test_iso_detection_and_listing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let iso_path = tmp.path().join("test_image.iso");
+    synthesize_test_iso(&iso_path);
+
+    // 1. Verify archive detector recognizes ISO
+    assert_eq!(detect_archive_type(&iso_path), ArchiveType::Iso);
+
+    // 2. Read entries
+    let (info, entries) = IsoEngine::read_entries(&iso_path).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::Iso);
+    assert!(info.comment.as_ref().unwrap().contains("TEST_VOLUME"));
+    assert_eq!(info.total_files, 2);
+    assert_eq!(info.total_folders, 1);
+
+    // Verify entries
+    let hello_entry = entries.iter().find(|e| e.name == "HELLO.TXT");
+    assert!(hello_entry.is_some());
+    let hello = hello_entry.unwrap();
+    assert_eq!(hello.full_path, "HELLO.TXT");
+    assert_eq!(hello.size, 27);
+    assert!(!hello.is_dir);
+
+    let subdir_entry = entries.iter().find(|e| e.name == "SUBDIR");
+    assert!(subdir_entry.is_some());
+    assert!(subdir_entry.unwrap().is_dir);
+
+    let nested_entry = entries.iter().find(|e| e.name == "NESTED.DAT");
+    assert!(nested_entry.is_some());
+    let nested = nested_entry.unwrap();
+    assert_eq!(nested.full_path, "SUBDIR/NESTED.DAT");
+    assert_eq!(nested.size, 28);
+    assert!(!nested.is_dir);
+}
+
+#[test]
+fn test_iso_integrity_verification() {
+    let tmp = tempfile::tempdir().unwrap();
+    let iso_path = tmp.path().join("test_verify.iso");
+    synthesize_test_iso(&iso_path);
+
+    // Intact ISO passes
+    assert!(IsoEngine::test(&iso_path).unwrap());
+
+    // Truncated ISO fails
+    let truncated_path = tmp.path().join("truncated.iso");
+    let mut data = fs::read(&iso_path).unwrap();
+    data.truncate(19 * 2048 + 10); // Cuts off sector 20 & 21
+    fs::write(&truncated_path, data).unwrap();
+    assert!(IsoEngine::test(&truncated_path).is_err());
+}
+
+#[test]
+fn test_iso_extraction_all_and_selective() {
+    let tmp = tempfile::tempdir().unwrap();
+    let iso_path = tmp.path().join("test_extract.iso");
+    synthesize_test_iso(&iso_path);
+
+    // 1. Full extraction
+    let extract_dir = tmp.path().join("extracted_full");
+    IsoEngine::extract(&iso_path, &extract_dir, None).unwrap();
+
+    let hello_content = fs::read_to_string(extract_dir.join("HELLO.TXT")).unwrap();
+    assert_eq!(hello_content, "Hello ISO 9660 from LinRAR!");
+
+    let nested_content = fs::read_to_string(extract_dir.join("SUBDIR").join("NESTED.DAT")).unwrap();
+    assert_eq!(nested_content, "Nested file in ISO container");
+
+    // 2. Selective extraction
+    let selective_dir = tmp.path().join("extracted_selective");
+    IsoEngine::extract(&iso_path, &selective_dir, Some(&["HELLO.TXT".to_string()])).unwrap();
+
+    assert!(selective_dir.join("HELLO.TXT").exists());
+    assert!(!selective_dir.join("SUBDIR").join("NESTED.DAT").exists());
+}
+
+#[test]
+fn test_iso_conversion_to_zip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let iso_path = tmp.path().join("disk_image.iso");
+    synthesize_test_iso(&iso_path);
+
+    let opts = AddOptions::default();
+    let zip_dest = ArchiveConverter::convert(&iso_path, ArchiveType::Zip, &opts).unwrap();
+    assert!(zip_dest.exists());
+    assert_eq!(detect_archive_type(&zip_dest), ArchiveType::Zip);
+
+    // Extract the converted zip to verify integrity
+    let out_dir = tmp.path().join("zip_out");
+    ZipEngine::extract(&zip_dest, &out_dir, None, None).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(out_dir.join("HELLO.TXT")).unwrap(),
+        "Hello ISO 9660 from LinRAR!"
+    );
+    assert_eq!(
+        fs::read_to_string(out_dir.join("SUBDIR").join("NESTED.DAT")).unwrap(),
+        "Nested file in ISO container"
+    );
+}
+
+#[test]
+fn test_iso_smart_extraction() {
+    let tmp = tempfile::tempdir().unwrap();
+    let iso_path = tmp.path().join("loose_disk.iso");
+    synthesize_test_iso(&iso_path);
+
+    let out_base = tmp.path().join("smart_out");
+    // Since our ISO has both HELLO.TXT and SUBDIR at root (multiple items), smart extract creates a folder named after the ISO stem
+    let final_dest = SmartExtractor::extract_smart(&iso_path, &out_base, None).unwrap();
+    assert_eq!(final_dest, out_base.join("loose_disk"));
+    assert!(final_dest.join("HELLO.TXT").exists());
+    assert!(final_dest.join("SUBDIR").join("NESTED.DAT").exists());
 }

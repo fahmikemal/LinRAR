@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::{detect_archive_type, is_supported_archive};
 use crate::core::finder::ArchiveFinder;
+use crate::core::iso_engine::IsoEngine;
 use crate::core::rar_engine::RarEngine;
 use crate::core::repair::ArchiveRepair;
 use crate::core::report::{ArchiveReport, ReportFormat};
@@ -159,6 +160,7 @@ impl LinrarApp {
             | ArchiveType::TarXz
             | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
             ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
+            ArchiveType::Iso => IsoEngine::read_entries(path),
             _ => Err("Unsupported archive format".to_string()),
         };
 
@@ -1388,6 +1390,7 @@ impl LinrarApp {
                     | ArchiveType::TarZst
                     | ArchiveType::Tar => TarEngine::test(&path, arch_type),
                     ArchiveType::SevenZip => SevenZipEngine::test(&path, None),
+                    ArchiveType::Iso => IsoEngine::test(&path),
                     _ => RarEngine::test(&path),
                 };
 
@@ -1528,6 +1531,7 @@ impl LinrarApp {
                         | ArchiveType::TarXz
                         | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
                         ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
+                        ArchiveType::Iso => IsoEngine::read_entries(path),
                         _ => Err("Unsupported archive format".to_string()),
                     };
                     match result {
@@ -1570,6 +1574,7 @@ impl LinrarApp {
                             ArchiveType::SevenZip => {
                                 SevenZipEngine::read_entries(selected_path, None)
                             }
+                            ArchiveType::Iso => IsoEngine::read_entries(selected_path),
                             _ => Err("Unsupported archive format".to_string()),
                         };
                         match result {
@@ -1803,6 +1808,7 @@ impl LinrarApp {
                         ArchiveType::SevenZip => {
                             SevenZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
                         }
+                        ArchiveType::Iso => IsoEngine::extract(arch, &temp_dir, Some(files_slice)),
                         _ => RarEngine::extract(arch, &temp_dir, Some(files_slice), None),
                     };
 
@@ -2393,6 +2399,9 @@ impl LinrarApp {
                                             SevenZipEngine::read_entries(&archive_path, pwd)
                                                 .map(|(_, e)| e)
                                         }
+                                        ArchiveType::Iso => {
+                                            IsoEngine::read_entries(&archive_path).map(|(_, e)| e)
+                                        }
                                         _ => RarEngine::read_entries(&archive_path).map(|(_, e)| e),
                                     };
                                     match entries_res {
@@ -2428,6 +2437,7 @@ impl LinrarApp {
                                     ArchiveType::SevenZip => {
                                         SevenZipEngine::extract(archive_path, &dest, None, pwd)
                                     }
+                                    ArchiveType::Iso => IsoEngine::extract(archive_path, &dest, None),
                                     _ => Err("Unsupported format".to_string()),
                                 };
 

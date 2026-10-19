@@ -15,7 +15,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Format** | 7-Zip (`.7z`) | LZMA, LZMA2, BCJ2, PPMd | **Full** | `sevenzip_engine.rs` + `sevenz-rust2` |
 | **Format** | Zstandard (`.zst`, `.tar.zst`, `.tzst`) | RFC 8878 Zstandard high-speed | **Full** | `tar_engine.rs` + `zstd` |
 | **Format** | XZ (`.tar.xz`, `.txz`, `.xz`) | LZMA2 compression | **Full** | `tar_engine.rs` + `xz2` |
-| **Format** | Container Images (ISO, DMG, WIM) | Read-only image extraction | **Planned** | Roadmap Fase 1 |
+| **Format** | Container & Disk Images (ISO 9660, Joliet) | Pure Rust container browsing, extraction & conversion | **Full** | `iso_engine.rs` |
 | **Keamanan** | Enkripsi AES-256 ZIP murni Rust | WinZip AES-256 standard | **Full** | `zip_engine.rs` (`AesMode::Aes256`) |
 | **Keamanan** | Enkripsi Header / Encrypt Filenames | RAR `-hp`, 7z header encryption | **Full** | `rar_engine.rs` (`-hp`) |
 | **Keamanan** | Virus & Threat Scanner | ClamAV + Heuristic signatures | **Full** | `scanner.rs` (`ArchiveScanner`) |
@@ -148,6 +148,23 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
     - Dialog GUI *Add to Archive*: Opsi "🗑 Delete files after archiving", sub-opsi "🔒 Secure Shred (Overwrite data before unlink)", dan ComboBox pemilihan algoritma standar penghapusan.
     - Opsi CLI saat mengarsipkan: `linrar a <arch> <files> --delete`, `linrar a <arch> <files> --shred`, dan `--shred-method <quick|random|dod|gutmann>`.
     - Perintah CLI mandiri: `linrar shred <files/dirs>... [--method <quick|random|dod|gutmann>]`.
+
+### M. Container & Disk Image Reader (ISO 9660 & Joliet Extension)
+- **Implementasi**:
+  - Engine murni Rust `IsoEngine` di `src/core/iso_engine.rs` tanpa ketergantungan pada utilitas eksternal (`p7zip`, `isoinfo`, `mount`) untuk membuka, menjelajah, memverifikasi, dan mengekstrak berkas citra disk (`.iso`).
+  - **Spesifikasi ISO 9660 & Joliet (ECMA-119)**:
+    - *Volume Descriptors*: Membaca Primary Volume Descriptor (PVD) pada sektor 16 dan Supplementary Volume Descriptor (SVD) dengan ekstensi Joliet UCS-2 / UTF-16BE.
+    - *Hierarchical Traversal*: Mengurai record direktori berlapis secara rekursif dengan penanganan padding batas sektor 2048-byte dan pencegahan siklus rekursif (*infinite loop defense* via `HashSet`).
+    - *Decoding Nama Berkas*: Mendukung karakter Unicode penuh via Joliet UCS-2 serta pembersihan suffix versi ISO 9660 (`;1`) dan titik trailing secara otomatis.
+    - *Metadata & Timestamps*: Membaca tanggal dan waktu perekaman 7-byte standar ISO 9660 (`YYYY-MM-DD HH:MM:SS`), atribut izin file POSIX, label volume, dan informasi sistem di dialog Info Arsip.
+    - *Keamanan Path Traversal*: Perlindungan terintegrasi terhadap serangan directory traversal (`..`).
+  - **Integrasi Penuh LinRAR**:
+    - Deteksi otomatis tipe berkas via ekstensi `.iso` dan signature magic byte `CD001` pada sektor 16 (offset 32768).
+    - Ekstraksi Pintar (*Smart Extraction*): Deteksi folder tunggal vs file berserakan pada berkas ISO.
+    - Konverter Arsip (*Format Converter*): Konversi langsung berkas `.iso` menjadi `.zip`, `.tar.gz`, `.7z`, atau format arsip lainnya.
+    - Integrasi CLI: Mendukung `linrar l <file.iso>`, `linrar x <file.iso>`, `linrar t <file.iso>`, dan `linrar convert <file.iso> <target_fmt>`.
+    - Integrasi GUI: Penjelajahan direktori virtual, dialog info arsip, verifikasi integritas citra, Quick Look preview berkas, dan dialog ekstraksi.
+
 
 
 

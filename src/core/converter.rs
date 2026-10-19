@@ -1,4 +1,5 @@
 use crate::core::detector::detect_archive_type;
+use crate::core::iso_engine::IsoEngine;
 use crate::core::rar_engine::RarEngine;
 use crate::core::sevenzip_engine::SevenZipEngine;
 use crate::core::smart_extract::SmartExtractor;
@@ -53,6 +54,7 @@ impl ArchiveConverter {
             ArchiveType::SevenZip => {
                 SevenZipEngine::extract(src, &temp_dir, None, options.password.as_deref())
             }
+            ArchiveType::Iso => IsoEngine::extract(src, &temp_dir, None),
             _ => RarEngine::extract(src, &temp_dir, None, options.password.as_deref()),
         };
 

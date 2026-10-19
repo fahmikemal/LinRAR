@@ -3,6 +3,7 @@ pub mod bypass;
 pub mod converter;
 pub mod detector;
 pub mod finder;
+pub mod iso_engine;
 pub mod rar_engine;
 pub mod rar_parser;
 pub mod repair;

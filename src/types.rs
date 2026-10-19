@@ -12,6 +12,7 @@ pub enum ArchiveType {
     TarXz,
     TarZst,
     SevenZip,
+    Iso,
     Unknown,
 }
 
@@ -27,6 +28,7 @@ impl ArchiveType {
             ArchiveType::TarXz => "TAR.XZ",
             ArchiveType::TarZst => "TAR.ZST",
             ArchiveType::SevenZip => "7-Zip",
+            ArchiveType::Iso => "ISO Image",
             ArchiveType::Unknown => "Unknown",
         }
     }
@@ -42,6 +44,7 @@ impl ArchiveType {
             ArchiveType::TarXz => "tar.xz",
             ArchiveType::TarZst => "tar.zst",
             ArchiveType::SevenZip => "7z",
+            ArchiveType::Iso => "iso",
             ArchiveType::Unknown => "bin",
         }
     }
