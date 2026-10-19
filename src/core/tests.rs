@@ -5,6 +5,7 @@ use crate::core::benchmark::BenchmarkRunner;
 use crate::core::bypass::SmartBypass;
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::detect_archive_type;
+use crate::core::encoding::ArchiveEncoding;
 use crate::core::finder::ArchiveFinder;
 use crate::core::iso_engine::IsoEngine;
 use crate::core::rar_engine::RarEngine;
@@ -1149,4 +1150,217 @@ fn test_iso_smart_extraction() {
     assert_eq!(final_dest, out_base.join("loose_disk"));
     assert!(final_dest.join("HELLO.TXT").exists());
     assert!(final_dest.join("SUBDIR").join("NESTED.DAT").exists());
+}
+
+#[test]
+fn test_archive_encoding_decoders() {
+    // 1. CP437
+    let cp437_bytes = [b'C', b'a', b'f', 0x82]; // "Café" in CP437 (0x82 is 'é')
+    assert_eq!(ArchiveEncoding::Cp437.decode(&cp437_bytes), "Café");
+
+    // 2. Shift-JIS (Japanese)
+    let sjis_bytes = [0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd]; // "こんにちは"
+    assert_eq!(ArchiveEncoding::ShiftJis.decode(&sjis_bytes), "こんにちは");
+
+    // 3. GBK / GB18030 (Simplified Chinese)
+    let gbk_bytes = [0xc4, 0xe3, 0xba, 0xc3, 0xca, 0xc0, 0xbd, 0xe7]; // "你好世界"
+    assert_eq!(ArchiveEncoding::Gbk.decode(&gbk_bytes), "你好世界");
+
+    // 4. Big5 (Traditional Chinese)
+    let big5_bytes = [0xa5, 0x78, 0xc6, 0x57]; // "台灣"
+    assert_eq!(ArchiveEncoding::Big5.decode(&big5_bytes), "台灣");
+
+    // 5. EUC-KR (Korean)
+    let euckr_bytes = [0xbe, 0xc8, 0xb3, 0xe7, 0xc7, 0xcf, 0xbc, 0xbc, 0xbf, 0xe4]; // "안녕하세요"
+    assert_eq!(ArchiveEncoding::EucKr.decode(&euckr_bytes), "안녕하세요");
+
+    // 6. Windows-1251 (Cyrillic)
+    let win1251_bytes = [0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]; // "Привет"
+    assert_eq!(
+        ArchiveEncoding::Windows1251.decode(&win1251_bytes),
+        "Привет"
+    );
+
+    // 7. Windows-1252 (Western European)
+    let win1252_bytes = [0xe9, 0x6c, 0xe8, 0x76, 0x65]; // "élève"
+    assert_eq!(ArchiveEncoding::Windows1252.decode(&win1252_bytes), "élève");
+
+    // 8. Auto-detection on valid UTF-8
+    let utf8_bytes = "LinRAR 2026 Archive".as_bytes();
+    assert_eq!(
+        ArchiveEncoding::Auto.decode(utf8_bytes),
+        "LinRAR 2026 Archive"
+    );
+}
+
+#[test]
+fn test_archive_encoding_from_str() {
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("sjis"),
+        Some(ArchiveEncoding::ShiftJis)
+    );
+    assert_eq!(
+        "CP932".parse::<ArchiveEncoding>().unwrap(),
+        ArchiveEncoding::ShiftJis
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("gbk"),
+        Some(ArchiveEncoding::Gbk)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("cp936"),
+        Some(ArchiveEncoding::Gbk)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("big5"),
+        Some(ArchiveEncoding::Big5)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("euc-kr"),
+        Some(ArchiveEncoding::EucKr)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("cp949"),
+        Some(ArchiveEncoding::EucKr)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("cp1251"),
+        Some(ArchiveEncoding::Windows1251)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("windows-1252"),
+        Some(ArchiveEncoding::Windows1252)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("dos"),
+        Some(ArchiveEncoding::Cp437)
+    );
+    assert_eq!(
+        ArchiveEncoding::parse_encoding("ibm437"),
+        Some(ArchiveEncoding::Cp437)
+    );
+    assert_eq!(ArchiveEncoding::parse_encoding("unknown_xyz"), None);
+}
+
+fn synthesize_test_zip_with_raw_name(path: &std::path::Path, raw_name: &[u8], content: &[u8]) {
+    let mut data = Vec::new();
+    let crc = crc32fast::hash(content);
+    let n = raw_name.len() as u16;
+
+    // 1. Local File Header
+    data.extend_from_slice(b"PK\x03\x04");
+    data.extend_from_slice(&10u16.to_le_bytes()); // version needed
+    data.extend_from_slice(&0u16.to_le_bytes()); // general purpose bit flag (0 = CP non-UTF8)
+    data.extend_from_slice(&0u16.to_le_bytes()); // compression method (0 = Stored)
+    data.extend_from_slice(&0u32.to_le_bytes()); // time/date
+    data.extend_from_slice(&crc.to_le_bytes());
+    data.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    data.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    data.extend_from_slice(&n.to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes()); // extra field len
+    data.extend_from_slice(raw_name);
+    data.extend_from_slice(content);
+
+    let cd_offset = data.len() as u32;
+
+    // 2. Central Directory Header
+    data.extend_from_slice(b"PK\x01\x02");
+    data.extend_from_slice(&0x0314u16.to_le_bytes()); // version made by
+    data.extend_from_slice(&10u16.to_le_bytes()); // version needed
+    data.extend_from_slice(&0u16.to_le_bytes()); // bit flag 0
+    data.extend_from_slice(&0u16.to_le_bytes()); // compression method (0)
+    data.extend_from_slice(&0u32.to_le_bytes()); // time/date
+    data.extend_from_slice(&crc.to_le_bytes());
+    data.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    data.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    data.extend_from_slice(&n.to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes()); // extra field len
+    data.extend_from_slice(&0u16.to_le_bytes()); // comment len
+    data.extend_from_slice(&0u16.to_le_bytes()); // disk num start
+    data.extend_from_slice(&0u16.to_le_bytes()); // internal file attr
+    data.extend_from_slice(&(0o100644u32 << 16).to_le_bytes()); // external file attr (Unix mode in high 16 bits)
+    data.extend_from_slice(&0u32.to_le_bytes()); // local header offset (0)
+    data.extend_from_slice(raw_name);
+
+    let cd_len = (data.len() as u32) - cd_offset;
+
+    // 3. End of Central Directory Record
+    data.extend_from_slice(b"PK\x05\x06");
+    data.extend_from_slice(&0u16.to_le_bytes()); // disk number
+    data.extend_from_slice(&0u16.to_le_bytes()); // start disk
+    data.extend_from_slice(&1u16.to_le_bytes()); // entries on disk
+    data.extend_from_slice(&1u16.to_le_bytes()); // total entries
+    data.extend_from_slice(&cd_len.to_le_bytes());
+    data.extend_from_slice(&cd_offset.to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes()); // comment length
+
+    fs::write(path, data).unwrap();
+}
+
+#[test]
+fn test_zip_shift_jis_anti_mojibake() {
+    let tmp = tempfile::tempdir().unwrap();
+    let zip_path = tmp.path().join("japanese_archive.zip");
+
+    // Raw Shift-JIS bytes for "こんにちは.txt"
+    let raw_name = [
+        0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd, b'.', b't', b'x', b't',
+    ];
+    let content = b"Japanese Shift-JIS File Content!";
+    synthesize_test_zip_with_raw_name(&zip_path, &raw_name, content);
+
+    // 1. Read entries with Shift-JIS encoding
+    let (_, entries) =
+        ZipEngine::read_entries_with_encoding(&zip_path, ArchiveEncoding::ShiftJis).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "こんにちは.txt");
+    assert_eq!(entries[0].full_path, "こんにちは.txt");
+
+    // 2. Extract with Shift-JIS encoding
+    let extract_dir = tmp.path().join("extracted_sjis");
+    ZipEngine::extract_with_encoding(
+        &zip_path,
+        &extract_dir,
+        None,
+        None,
+        ArchiveEncoding::ShiftJis,
+    )
+    .unwrap();
+
+    let extracted_file = extract_dir.join("こんにちは.txt");
+    assert!(
+        extracted_file.exists(),
+        "Extracted file should have clean Unicode name without mojibake"
+    );
+    let read_back = fs::read_to_string(&extracted_file).unwrap();
+    assert_eq!(read_back, "Japanese Shift-JIS File Content!");
+}
+
+#[test]
+fn test_zip_gbk_anti_mojibake() {
+    let tmp = tempfile::tempdir().unwrap();
+    let zip_path = tmp.path().join("chinese_archive.zip");
+
+    // Raw GBK bytes for "测试文档.txt"
+    let raw_name = [
+        0xb2, 0xe2, 0xca, 0xd4, 0xce, 0xc4, 0xb5, 0xb5, b'.', b't', b'x', b't',
+    ];
+    let content = b"Chinese GBK File Content!";
+    synthesize_test_zip_with_raw_name(&zip_path, &raw_name, content);
+
+    // 1. Read entries with GBK encoding
+    let (_, entries) =
+        ZipEngine::read_entries_with_encoding(&zip_path, ArchiveEncoding::Gbk).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "测试文档.txt");
+
+    // 2. Extract with GBK encoding
+    let extract_dir = tmp.path().join("extracted_gbk");
+    ZipEngine::extract_with_encoding(&zip_path, &extract_dir, None, None, ArchiveEncoding::Gbk)
+        .unwrap();
+
+    let extracted_file = extract_dir.join("测试文档.txt");
+    assert!(extracted_file.exists());
+    let read_back = fs::read_to_string(&extracted_file).unwrap();
+    assert_eq!(read_back, "Chinese GBK File Content!");
 }

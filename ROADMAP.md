@@ -34,7 +34,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **GUI & UX** | Quick Look / In-Archive File Preview | Preview teks/gambar langsung via default system app | **Full** | `app.rs` (`trigger_view_file`, double-click) |
 | **GUI & UX** | Drag-and-Drop (DND) File Manager | Drag file/arsip dari Dolphin/Nautilus dengan visual drop-overlay & auto-open/add | **Full** | `app.rs` (`handle_dropped_files`, `render_dnd_overlay`) |
 | **GUI & UX** | Smart Extraction ("Extract Here - Smart") | Deteksi single-folder vs loose files | **Full** | `smart_extract.rs` (`SmartExtractor`) |
-| **GUI & UX** | Code Page / Encoding Selector | Anti-mojibake (Shift-JIS, CP949, GBK) | **Planned** | Roadmap Fase 2 |
+| **GUI & UX** | Code Page / Encoding Selector | Anti-mojibake (Shift-JIS, GBK, Big5, EUC-KR, CP1251, CP437) | **Full** | `encoding.rs` + GUI/CLI integration |
 | **Sistem** | Unix Metadata (Permissions, mtime) | Mode octal `-rwxr-xr-x`, timestamp | **Full** | `zip_engine.rs`, `tar_engine.rs` |
 | **Sistem** | Hardware Benchmark Multithreaded | Rayon hashing & integer MIPS test | **Full** | `benchmark.rs` (`BenchmarkRunner`) |
 | **Sistem** | Desktop Integration | `.desktop`, icons, MIME association | **Full** | `linrar.desktop`, `assets/icons/` |
@@ -164,6 +164,32 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
     - Konverter Arsip (*Format Converter*): Konversi langsung berkas `.iso` menjadi `.zip`, `.tar.gz`, `.7z`, atau format arsip lainnya.
     - Integrasi CLI: Mendukung `linrar l <file.iso>`, `linrar x <file.iso>`, `linrar t <file.iso>`, dan `linrar convert <file.iso> <target_fmt>`.
     - Integrasi GUI: Penjelajahan direktori virtual, dialog info arsip, verifikasi integritas citra, Quick Look preview berkas, dan dialog ekstraksi.
+
+### N. Code Page / Character Encoding Selector (Anti-Mojibake Engine)
+- **Implementasi**:
+  - Engine penanganan encoding karakter dan pencegah teks rusak (*anti-mojibake*) `ArchiveEncoding` di `src/core/encoding.rs` berbasis `encoding_rs` v0.8.42 dan tabel lookup presisi CP437 kustom untuk membaca dan mengekstrak berkas non-UTF-8 warisan (*legacy archives*). Fitur benchmark standar industri ala PeaZip "Code page / Character encoding selector", Bandizip "Code-page selection", dan 7-Zip `-mcp`.
+  - **Dukungan Himpunan Code Page Global**:
+    - *Auto-Detection*: Deteksi otomatis stream UTF-8 valid dan penanganan fallback cerdas.
+    - *UTF-8*: Standar Unicode universal.
+    - *Shift-JIS / CP932 / Windows-31J*: Karakter arsip bahasa Jepang.
+    - *GBK / GB18030 / CP936*: Karakter arsip bahasa Mandarin Sederhana (*Simplified Chinese*).
+    - *Big5 / CP950*: Karakter arsip bahasa Mandarin Tradisional (*Traditional Chinese*).
+    - *EUC-KR / CP949*: Karakter arsip bahasa Korea.
+    - *Windows-1251 / CP1251*: Karakter arsip bahasa Cyrillic / Slavia (Rusia, Ukraina, dsb.).
+    - *Windows-1252 / ISO-8859-1*: Karakter arsip Eropa Barat (Latin-1).
+    - *Windows-1250 / ISO-8859-2*: Karakter arsip Eropa Tengah (Latin-2).
+    - *CP437 / IBM-437 / DOS OEM*: Karakter arsip retro DOS / IBM PC Amerika Serikat dengan tabel pemetaan simbol box-drawing dan aksen akurat.
+  - **Integrasi Engine Ekstraksi & Pembacaan**:
+    - Mengambil byte mentah filename dari arsip (`name_raw()` pada ZIP, `path_bytes()` pada TAR) tanpa konversi lossy perantara, lalu mendekodekan secara langsung dengan code page yang dipilih.
+    - Memulihkan nama berkas dan path direktori Unicode yang jernih dan benar saat mengekstrak ke sistem berkas Linux.
+  - **Integrasi Antarmuka GUI (Live Hot-Reloading)**:
+    - Menu bar atas `Encoding`: Menampilkan menu pop-up pemilihan code page dengan centang indikator status aktif.
+    - Address / Navigation Bar dropdown: Widget compact ComboBox `🔤 ENCODING` yang menampilkan pilihan code page yang sedang aktif.
+    - Pergantian encoding secara langsung (*live hot-reloading*): Saat pengguna mengganti encoding, LinRAR langsung memuat ulang daftar isi arsip secara instan di memori tanpa mereset posisi navigasi folder pengguna.
+    - Meneruskan encoding aktif secara konsisten ke dialog ekstraksi, dialog info arsip, dan pratinjau Quick Look.
+  - **Integrasi CLI**:
+    - Opsi `--encoding <auto|utf8|sjis|gbk|big5|euckr|cp1251|cp1252|cp437>` pada perintah `linrar l <archive>` dan `linrar x <archive>`.
+
 
 
 

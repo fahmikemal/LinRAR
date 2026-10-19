@@ -5,6 +5,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::core::bypass::SmartBypass;
+use crate::core::encoding::ArchiveEncoding;
 use crate::core::volume::VolumeManager;
 use crate::types::{
     AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel, format_unix_mode,
@@ -15,6 +16,13 @@ pub struct ZipEngine;
 impl ZipEngine {
     pub fn read_entries<P: AsRef<Path>>(
         path: P,
+    ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
+        Self::read_entries_with_encoding(path, ArchiveEncoding::Auto)
+    }
+
+    pub fn read_entries_with_encoding<P: AsRef<Path>>(
+        path: P,
+        encoding: ArchiveEncoding,
     ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         let path = path.as_ref();
         let file = File::open(path).map_err(|e| format!("Failed to open zip: {}", e))?;
@@ -29,14 +37,9 @@ impl ZipEngine {
 
         for i in 0..archive.len() {
             if let Ok(file) = archive.by_index_raw(i) {
-                let is_dir = file.is_dir();
-                let full_path = file.name().map(|n| n.to_string()).unwrap_or_default();
-                let name = full_path
-                    .trim_end_matches('/')
-                    .split('/')
-                    .rfind(|s| !s.is_empty())
-                    .unwrap_or(&full_path)
-                    .to_string();
+                let raw_name = file.name_raw();
+                let (name, full_path) = encoding.decode_path(raw_name);
+                let is_dir = file.is_dir() || raw_name.ends_with(b"/") || full_path.ends_with('/');
 
                 let size = file.size();
                 let packed_size = file.compressed_size();
@@ -109,6 +112,22 @@ impl ZipEngine {
         selected_files: Option<&[String]>,
         password: Option<&str>,
     ) -> Result<(), String> {
+        Self::extract_with_encoding(
+            archive_path,
+            dest_dir,
+            selected_files,
+            password,
+            ArchiveEncoding::Auto,
+        )
+    }
+
+    pub fn extract_with_encoding<P: AsRef<Path>, D: AsRef<Path>>(
+        archive_path: P,
+        dest_dir: D,
+        selected_files: Option<&[String]>,
+        password: Option<&str>,
+        encoding: ArchiveEncoding,
+    ) -> Result<(), String> {
         let file = File::open(archive_path.as_ref()).map_err(|e| e.to_string())?;
         let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
         let dest = dest_dir.as_ref();
@@ -122,22 +141,35 @@ impl ZipEngine {
             }
             .map_err(|e| e.to_string())?;
 
-            let outpath = match file.enclosed_name() {
-                Some(path) => dest.join(path),
-                None => continue,
-            };
+            let (name, full_path) = encoding.decode_path(file.name_raw());
+            let is_dir =
+                file.is_dir() || file.name_raw().ends_with(b"/") || full_path.ends_with('/');
+
+            // Security check against directory traversal attacks
+            let clean_relative = Path::new(&full_path);
+            if clean_relative.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir
+                        | std::path::Component::RootDir
+                        | std::path::Component::Prefix(_)
+                )
+            }) {
+                continue;
+            }
 
             if let Some(selected) = selected_files {
-                let name = file.name().map(|n| n.to_string()).unwrap_or_default();
-                if !selected
-                    .iter()
-                    .any(|s| name == *s || name.starts_with(&format!("{}/", s)))
-                {
+                let matches_sel = selected.iter().any(|s| {
+                    full_path == *s || full_path.starts_with(&format!("{}/", s)) || name == *s
+                });
+                if !matches_sel {
                     continue;
                 }
             }
 
-            if file.is_dir() {
+            let outpath = dest.join(clean_relative);
+
+            if is_dir {
                 fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
             } else {
                 if let Some(p) = outpath.parent()

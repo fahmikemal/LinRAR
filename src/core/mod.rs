@@ -2,6 +2,7 @@ pub mod benchmark;
 pub mod bypass;
 pub mod converter;
 pub mod detector;
+pub mod encoding;
 pub mod finder;
 pub mod iso_engine;
 pub mod rar_engine;

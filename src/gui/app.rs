@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::converter::ArchiveConverter;
 use crate::core::detector::{detect_archive_type, is_supported_archive};
+use crate::core::encoding::ArchiveEncoding;
 use crate::core::finder::ArchiveFinder;
 use crate::core::iso_engine::IsoEngine;
 use crate::core::rar_engine::RarEngine;
@@ -57,6 +58,7 @@ pub struct LinrarApp {
     pub status_message: String,
     pub show_comment_pane: bool,
     pub theme_mode: ThemeMode,
+    pub current_encoding: ArchiveEncoding,
 }
 
 impl LinrarApp {
@@ -80,6 +82,7 @@ impl LinrarApp {
             status_message: "Ready".to_string(),
             show_comment_pane: true,
             theme_mode: ThemeMode::Dark,
+            current_encoding: ArchiveEncoding::Auto,
         };
 
         if let Some(path) = initial_path {
@@ -150,15 +153,21 @@ impl LinrarApp {
     }
 
     pub fn open_archive(&mut self, path: &Path) {
+        self.open_archive_with_encoding(path, self.current_encoding);
+    }
+
+    pub fn open_archive_with_encoding(&mut self, path: &Path, encoding: ArchiveEncoding) {
         let arch_type = detect_archive_type(path);
         let result = match arch_type {
             ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(path),
-            ArchiveType::Zip => ZipEngine::read_entries(path),
+            ArchiveType::Zip => ZipEngine::read_entries_with_encoding(path, encoding),
             ArchiveType::Tar
             | ArchiveType::TarGz
             | ArchiveType::TarBz2
             | ArchiveType::TarXz
-            | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
+            | ArchiveType::TarZst => {
+                TarEngine::read_entries_with_encoding(path, arch_type, encoding)
+            }
             ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
             ArchiveType::Iso => IsoEngine::read_entries(path),
             _ => Err("Unsupported archive format".to_string()),
@@ -173,8 +182,9 @@ impl LinrarApp {
                 self.selected_archive_files.clear();
                 self.view_mode = ViewMode::VirtualArchive;
                 self.status_message = format!(
-                    "Opened archive: {}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
+                    "Opened archive: {} [{}]",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    encoding.id().to_uppercase()
                 );
             }
             Err(e) => {
@@ -184,6 +194,13 @@ impl LinrarApp {
                     is_error: true,
                 };
             }
+        }
+    }
+
+    pub fn set_encoding(&mut self, encoding: ArchiveEncoding) {
+        self.current_encoding = encoding;
+        if let Some(path) = self.current_archive.clone() {
+            self.open_archive_with_encoding(&path, encoding);
         }
     }
 
@@ -748,6 +765,17 @@ impl eframe::App for LinrarApp {
                     }
                 });
 
+                ui.menu_button("Encoding", |ui| {
+                    for enc in ArchiveEncoding::all() {
+                        let is_active = self.current_encoding == *enc;
+                        if ui.selectable_label(is_active, enc.display_name()).clicked() {
+                            let new_enc = *enc;
+                            ui.close();
+                            self.set_encoding(new_enc);
+                        }
+                    }
+                });
+
                 ui.menu_button("Theme", |ui| {
                     if ui
                         .selectable_label(self.theme_mode == ThemeMode::Dark, "Dark Theme")
@@ -983,6 +1011,22 @@ impl eframe::App for LinrarApp {
 
                 let path_color = self.accent_color();
                 ui.monospace(RichText::new(current_display).color(path_color));
+
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let prev_enc = self.current_encoding;
+                    let mut chosen_enc = prev_enc;
+                    egui::ComboBox::from_id_salt("encoding_nav_combo")
+                        .selected_text(format!("🔤 {}", self.current_encoding.id().to_uppercase()))
+                        .width(90.0)
+                        .show_ui(ui, |ui| {
+                            for enc in ArchiveEncoding::all() {
+                                ui.selectable_value(&mut chosen_enc, *enc, enc.display_name());
+                            }
+                        });
+                    if chosen_enc != prev_enc {
+                        self.set_encoding(chosen_enc);
+                    }
+                });
             });
         });
 
@@ -1524,12 +1568,18 @@ impl LinrarApp {
                     let arch_type = detect_archive_type(path);
                     let result = match arch_type {
                         ArchiveType::Rar5 | ArchiveType::Rar4 => RarEngine::read_entries(path),
-                        ArchiveType::Zip => ZipEngine::read_entries(path),
+                        ArchiveType::Zip => {
+                            ZipEngine::read_entries_with_encoding(path, self.current_encoding)
+                        }
                         ArchiveType::Tar
                         | ArchiveType::TarGz
                         | ArchiveType::TarBz2
                         | ArchiveType::TarXz
-                        | ArchiveType::TarZst => TarEngine::read_entries(path, arch_type),
+                        | ArchiveType::TarZst => TarEngine::read_entries_with_encoding(
+                            path,
+                            arch_type,
+                            self.current_encoding,
+                        ),
                         ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
                         ArchiveType::Iso => IsoEngine::read_entries(path),
                         _ => Err("Unsupported archive format".to_string()),
@@ -1563,14 +1613,19 @@ impl LinrarApp {
                             ArchiveType::Rar5 | ArchiveType::Rar4 => {
                                 RarEngine::read_entries(selected_path)
                             }
-                            ArchiveType::Zip => ZipEngine::read_entries(selected_path),
+                            ArchiveType::Zip => ZipEngine::read_entries_with_encoding(
+                                selected_path,
+                                self.current_encoding,
+                            ),
                             ArchiveType::Tar
                             | ArchiveType::TarGz
                             | ArchiveType::TarBz2
                             | ArchiveType::TarXz
-                            | ArchiveType::TarZst => {
-                                TarEngine::read_entries(selected_path, arch_type)
-                            }
+                            | ArchiveType::TarZst => TarEngine::read_entries_with_encoding(
+                                selected_path,
+                                arch_type,
+                                self.current_encoding,
+                            ),
                             ArchiveType::SevenZip => {
                                 SevenZipEngine::read_entries(selected_path, None)
                             }
@@ -1795,16 +1850,24 @@ impl LinrarApp {
                     let files_slice = std::slice::from_ref(first);
                     let arch_type = detect_archive_type(arch);
                     let ext_res = match arch_type {
-                        ArchiveType::Zip => {
-                            ZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
-                        }
+                        ArchiveType::Zip => ZipEngine::extract_with_encoding(
+                            arch,
+                            &temp_dir,
+                            Some(files_slice),
+                            None,
+                            self.current_encoding,
+                        ),
                         ArchiveType::Tar
                         | ArchiveType::TarGz
                         | ArchiveType::TarBz2
                         | ArchiveType::TarXz
-                        | ArchiveType::TarZst => {
-                            TarEngine::extract(arch, &temp_dir, arch_type, Some(files_slice))
-                        }
+                        | ArchiveType::TarZst => TarEngine::extract_with_encoding(
+                            arch,
+                            &temp_dir,
+                            arch_type,
+                            Some(files_slice),
+                            self.current_encoding,
+                        ),
                         ArchiveType::SevenZip => {
                             SevenZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
                         }
@@ -2385,15 +2448,23 @@ impl LinrarApp {
                                 let dest = if *smart_extract {
                                     let entries_res = match arch_type {
                                         ArchiveType::Zip => {
-                                            ZipEngine::read_entries(&archive_path).map(|(_, e)| e)
+                                            ZipEngine::read_entries_with_encoding(
+                                                &archive_path,
+                                                self.current_encoding,
+                                            )
+                                            .map(|(_, e)| e)
                                         }
                                         ArchiveType::Tar
                                         | ArchiveType::TarGz
                                         | ArchiveType::TarBz2
                                         | ArchiveType::TarXz
                                         | ArchiveType::TarZst => {
-                                            TarEngine::read_entries(&archive_path, arch_type)
-                                                .map(|(_, e)| e)
+                                            TarEngine::read_entries_with_encoding(
+                                                &archive_path,
+                                                arch_type,
+                                                self.current_encoding,
+                                            )
+                                            .map(|(_, e)| e)
                                         }
                                         ArchiveType::SevenZip => {
                                             SevenZipEngine::read_entries(&archive_path, pwd)
@@ -2424,16 +2495,24 @@ impl LinrarApp {
                                     ArchiveType::Rar5 | ArchiveType::Rar4 => {
                                         RarEngine::extract(archive_path, &dest, None, pwd)
                                     }
-                                    ArchiveType::Zip => {
-                                        ZipEngine::extract(archive_path, &dest, None, pwd)
-                                    }
+                                    ArchiveType::Zip => ZipEngine::extract_with_encoding(
+                                        archive_path,
+                                        &dest,
+                                        None,
+                                        pwd,
+                                        self.current_encoding,
+                                    ),
                                     ArchiveType::Tar
                                     | ArchiveType::TarGz
                                     | ArchiveType::TarBz2
                                     | ArchiveType::TarXz
-                                    | ArchiveType::TarZst => {
-                                        TarEngine::extract(archive_path, &dest, arch_type, None)
-                                    }
+                                    | ArchiveType::TarZst => TarEngine::extract_with_encoding(
+                                        archive_path,
+                                        &dest,
+                                        arch_type,
+                                        None,
+                                        self.current_encoding,
+                                    ),
                                     ArchiveType::SevenZip => {
                                         SevenZipEngine::extract(archive_path, &dest, None, pwd)
                                     }

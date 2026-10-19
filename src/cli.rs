@@ -63,6 +63,12 @@ pub struct Cli {
     )]
     pub shred_method: String,
 
+    #[arg(
+        long = "encoding",
+        help = "Character encoding / code page for filename decoding (e.g. utf-8, shift-jis, gbk, big5, euc-kr, cp1251, cp1252, cp437)"
+    )]
+    pub encoding: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 

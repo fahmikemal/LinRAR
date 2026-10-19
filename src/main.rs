@@ -207,22 +207,32 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
 
             let _ = std::fs::create_dir_all(&dest_path);
 
+            let encoding = args
+                .encoding
+                .as_deref()
+                .and_then(crate::core::encoding::ArchiveEncoding::parse_encoding)
+                .unwrap_or_default();
+
             println!(
                 "LinRAR 0.1.0 - Extracting archive: {} to {}",
                 archive,
                 dest_path.display()
             );
             let res = match arch_type {
-                ArchiveType::Zip => {
-                    ZipEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref())
-                }
+                ArchiveType::Zip => ZipEngine::extract_with_encoding(
+                    &arch_path,
+                    &dest_path,
+                    selected,
+                    args.password.as_deref(),
+                    encoding,
+                ),
                 ArchiveType::TarGz
                 | ArchiveType::TarBz2
                 | ArchiveType::TarXz
                 | ArchiveType::TarZst
-                | ArchiveType::Tar => {
-                    TarEngine::extract(&arch_path, &dest_path, arch_type, selected)
-                }
+                | ArchiveType::Tar => TarEngine::extract_with_encoding(
+                    &arch_path, &dest_path, arch_type, selected, encoding,
+                ),
                 ArchiveType::SevenZip => SevenZipEngine::extract(
                     &arch_path,
                     &dest_path,
@@ -272,14 +282,21 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
         Commands::List { archive } => {
             let arch_path = PathBuf::from(&archive);
             let arch_type = detect_archive_type(&arch_path);
+            let encoding = args
+                .encoding
+                .as_deref()
+                .and_then(crate::core::encoding::ArchiveEncoding::parse_encoding)
+                .unwrap_or_default();
 
             let res = match arch_type {
-                ArchiveType::Zip => ZipEngine::read_entries(&arch_path),
+                ArchiveType::Zip => ZipEngine::read_entries_with_encoding(&arch_path, encoding),
                 ArchiveType::TarGz
                 | ArchiveType::TarBz2
                 | ArchiveType::TarXz
                 | ArchiveType::TarZst
-                | ArchiveType::Tar => TarEngine::read_entries(&arch_path, arch_type),
+                | ArchiveType::Tar => {
+                    TarEngine::read_entries_with_encoding(&arch_path, arch_type, encoding)
+                }
                 ArchiveType::SevenZip => {
                     SevenZipEngine::read_entries(&arch_path, args.password.as_deref())
                 }

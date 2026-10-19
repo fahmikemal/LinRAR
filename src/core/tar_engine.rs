@@ -11,6 +11,7 @@ use tar::{Archive, Builder};
 use xz2::read::XzDecoder;
 use xz2::write::XzEncoder;
 
+use crate::core::encoding::ArchiveEncoding;
 use crate::core::volume::VolumeManager;
 use crate::types::{
     AddOptions, ArchiveEntry, ArchiveInfo, ArchiveType, CompressionLevel, format_unix_mode,
@@ -78,6 +79,14 @@ impl TarEngine {
         path: P,
         archive_type: ArchiveType,
     ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
+        Self::read_entries_with_encoding(path, archive_type, ArchiveEncoding::Auto)
+    }
+
+    pub fn read_entries_with_encoding<P: AsRef<Path>>(
+        path: P,
+        archive_type: ArchiveType,
+        encoding: ArchiveEncoding,
+    ) -> Result<(ArchiveInfo, Vec<ArchiveEntry>), String> {
         let path = path.as_ref();
         let file = File::open(path).map_err(|e| e.to_string())?;
 
@@ -92,17 +101,12 @@ impl TarEngine {
         let tar_entries = archive.entries().map_err(|e| e.to_string())?;
 
         for entry in tar_entries.flatten() {
-            let path_buf = entry.path().map_err(|e| e.to_string())?.into_owned();
-            let full_path = path_buf.to_string_lossy().to_string();
-            let is_dir = entry.header().entry_type().is_dir();
+            let raw_path = entry.path_bytes();
+            let (name, full_path) = encoding.decode_path(&raw_path);
+            let is_dir = entry.header().entry_type().is_dir()
+                || raw_path.ends_with(b"/")
+                || full_path.ends_with('/');
             let size = entry.header().size().unwrap_or(0);
-
-            let name = full_path
-                .trim_end_matches('/')
-                .split('/')
-                .rfind(|s| !s.is_empty())
-                .unwrap_or(&full_path)
-                .to_string();
 
             total_unpacked += size;
             if is_dir {
@@ -164,6 +168,22 @@ impl TarEngine {
         archive_type: ArchiveType,
         selected_files: Option<&[String]>,
     ) -> Result<(), String> {
+        Self::extract_with_encoding(
+            archive_path,
+            dest_dir,
+            archive_type,
+            selected_files,
+            ArchiveEncoding::Auto,
+        )
+    }
+
+    pub fn extract_with_encoding<P: AsRef<Path>, D: AsRef<Path>>(
+        archive_path: P,
+        dest_dir: D,
+        archive_type: ArchiveType,
+        selected_files: Option<&[String]>,
+        encoding: ArchiveEncoding,
+    ) -> Result<(), String> {
         let file = File::open(archive_path.as_ref()).map_err(|e| e.to_string())?;
         let dest = dest_dir.as_ref();
         fs::create_dir_all(dest).map_err(|e| e.to_string())?;
@@ -174,19 +194,35 @@ impl TarEngine {
 
         for entry in entries {
             let mut entry = entry.map_err(|e| e.to_string())?;
-            let path = entry.path().map_err(|e| e.to_string())?.into_owned();
-            let name = path.to_string_lossy().to_string();
+            let raw_path = entry.path_bytes();
+            let (name, full_path) = encoding.decode_path(&raw_path);
 
-            if let Some(selected) = selected_files
-                && !selected
-                    .iter()
-                    .any(|s| name == *s || name.starts_with(&format!("{}/", s)))
-            {
+            let clean_relative = Path::new(&full_path);
+            if clean_relative.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir
+                        | std::path::Component::RootDir
+                        | std::path::Component::Prefix(_)
+                )
+            }) {
                 continue;
             }
 
-            let outpath = dest.join(&path);
-            if entry.header().entry_type().is_dir() {
+            if let Some(selected) = selected_files {
+                let matches_sel = selected.iter().any(|s| {
+                    full_path == *s || full_path.starts_with(&format!("{}/", s)) || name == *s
+                });
+                if !matches_sel {
+                    continue;
+                }
+            }
+
+            let outpath = dest.join(clean_relative);
+            let is_dir = entry.header().entry_type().is_dir()
+                || raw_path.ends_with(b"/")
+                || full_path.ends_with('/');
+            if is_dir {
                 fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
             } else {
                 if let Some(p) = outpath.parent()
@@ -194,7 +230,8 @@ impl TarEngine {
                 {
                     fs::create_dir_all(p).map_err(|e| e.to_string())?;
                 }
-                entry.unpack(&outpath).map_err(|e| e.to_string())?;
+                let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
+                std::io::copy(&mut entry, &mut outfile).map_err(|e| e.to_string())?;
 
                 #[cfg(unix)]
                 {
