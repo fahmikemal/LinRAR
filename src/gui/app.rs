@@ -48,6 +48,7 @@ pub struct LinrarApp {
     pub current_archive: Option<PathBuf>,
     pub archive_info: Option<ArchiveInfo>,
     pub archive_entries: Vec<ArchiveEntry>,
+    pub cached_visible_entries: Vec<ArchiveEntry>,
     pub archive_subpath: String,
     pub selected_archive_files: Vec<String>,
 
@@ -59,6 +60,7 @@ pub struct LinrarApp {
     pub show_comment_pane: bool,
     pub theme_mode: ThemeMode,
     pub current_encoding: ArchiveEncoding,
+    pub last_window_title: String,
 }
 
 impl LinrarApp {
@@ -74,6 +76,7 @@ impl LinrarApp {
             current_archive: None,
             archive_info: None,
             archive_entries: Vec::new(),
+            cached_visible_entries: Vec::new(),
             archive_subpath: String::new(),
             selected_archive_files: Vec::new(),
             dialog_state: DialogState::None,
@@ -83,6 +86,7 @@ impl LinrarApp {
             show_comment_pane: true,
             theme_mode: ThemeMode::Dark,
             current_encoding: ArchiveEncoding::Auto,
+            last_window_title: String::new(),
         };
 
         if let Some(path) = initial_path {
@@ -181,6 +185,7 @@ impl LinrarApp {
                 self.archive_info = Some(info);
                 self.archive_entries = entries;
                 self.archive_subpath.clear();
+                self.update_visible_entries();
                 self.selected_archive_files.clear();
                 self.view_mode = ViewMode::VirtualArchive;
                 self.status_message = format!(
@@ -206,7 +211,11 @@ impl LinrarApp {
         }
     }
 
-    pub fn visible_archive_entries(&self) -> Vec<ArchiveEntry> {
+    pub fn update_visible_entries(&mut self) {
+        self.cached_visible_entries = self.compute_visible_archive_entries();
+    }
+
+    pub fn compute_visible_archive_entries(&self) -> Vec<ArchiveEntry> {
         let prefix = if self.archive_subpath.is_empty() {
             "".to_string()
         } else {
@@ -248,7 +257,22 @@ impl LinrarApp {
             }
         }
 
+        results.sort_by(|a, b| {
+            if a.is_dir == b.is_dir {
+                a.name.to_lowercase().cmp(&b.name.to_lowercase())
+            } else if a.is_dir {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        });
+
         results
+    }
+
+    #[allow(dead_code)]
+    pub fn visible_archive_entries(&self) -> &[ArchiveEntry] {
+        &self.cached_visible_entries
     }
 
     pub fn format_size(bytes: u64) -> String {
@@ -386,8 +410,11 @@ impl eframe::App for LinrarApp {
                 }
             }
         };
-        ui.ctx()
-            .send_viewport_cmd(egui::ViewportCommand::Title(window_title));
+        if self.last_window_title != window_title {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Title(window_title.clone()));
+            self.last_window_title = window_title;
+        }
         self.handle_window_resize(ui.ctx());
 
         // --- Drag-and-Drop File Handling ---
@@ -1125,6 +1152,9 @@ impl LinrarApp {
         let mut to_navigate = None;
         let mut to_open_archive = None;
         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
+        let total_items = self.local_items.len();
+        let mut clicked_idx = None;
+        let mut double_clicked_idx = None;
 
         TableBuilder::new(ui)
             .striped(true)
@@ -1144,8 +1174,13 @@ impl LinrarApp {
                     ui.strong("Type");
                 });
             })
-            .body(|mut body| {
-                for item in &self.local_items {
+            .body(|body| {
+                body.rows(22.0, total_items, |mut row| {
+                    let index = row.index();
+                    if index >= self.local_items.len() {
+                        return;
+                    }
+                    let item = &self.local_items[index];
                     let is_selected = self.selected_local.contains(&item.path);
                     let icon = self.icons.as_ref().and_then(|ic| {
                         if item.is_dir {
@@ -1157,62 +1192,70 @@ impl LinrarApp {
                         }
                     });
 
-                    body.row(22.0, |mut row| {
-                        row.set_selected(is_selected);
+                    row.set_selected(is_selected);
 
-                        row.col(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
-                                if let Some(tex) = icon {
-                                    ui.add(egui::Image::from_texture((
-                                        tex.id(),
-                                        egui::vec2(16.0, 16.0),
-                                    )));
-                                }
-                                ui.label(&item.name);
-                            });
-                        });
-
-                        row.col(|ui| {
-                            ui.label(if item.is_dir {
-                                "-".to_string()
-                            } else {
-                                Self::format_size(item.size)
-                            });
-                        });
-
-                        row.col(|ui| {
-                            ui.label(if item.is_dir { "Folder" } else { "File" });
-                        });
-
-                        let resp = row.response();
-
-                        if resp.clicked() {
-                            if is_ctrl {
-                                if is_selected {
-                                    self.selected_local.retain(|p| p != &item.path);
-                                } else {
-                                    self.selected_local.push(item.path.clone());
-                                }
-                            } else {
-                                self.selected_local = vec![item.path.clone()];
+                    row.col(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                            if let Some(tex) = icon {
+                                ui.add(egui::Image::from_texture((
+                                    tex.id(),
+                                    egui::vec2(16.0, 16.0),
+                                )));
                             }
-                        }
-
-                        if resp.double_clicked() {
-                            if item.is_dir {
-                                to_navigate = Some(item.path.clone());
-                            } else if is_supported_archive(&item.path) {
-                                to_open_archive = Some(item.path.clone());
-                            } else {
-                                let _ = std::process::Command::new("xdg-open")
-                                    .arg(&item.path)
-                                    .spawn();
-                            }
-                        }
+                            ui.label(&item.name);
+                        });
                     });
-                }
+
+                    row.col(|ui| {
+                        ui.label(if item.is_dir {
+                            "-".to_string()
+                        } else {
+                            Self::format_size(item.size)
+                        });
+                    });
+
+                    row.col(|ui| {
+                        ui.label(if item.is_dir { "Folder" } else { "File" });
+                    });
+
+                    let resp = row.response();
+                    if resp.clicked() {
+                        clicked_idx = Some(index);
+                    }
+                    if resp.double_clicked() {
+                        double_clicked_idx = Some(index);
+                    }
+                });
             });
+
+        if let Some(idx) = clicked_idx
+            && let Some(item) = self.local_items.get(idx)
+        {
+            if is_ctrl {
+                if self.selected_local.contains(&item.path) {
+                    self.selected_local.retain(|p| p != &item.path);
+                } else {
+                    self.selected_local.push(item.path.clone());
+                }
+            } else {
+                self.selected_local = vec![item.path.clone()];
+            }
+        }
+
+        if let Some(idx) = double_clicked_idx
+            && let Some(item) = self.local_items.get(idx)
+        {
+            if item.is_dir {
+                to_navigate = Some(item.path.clone());
+            } else if is_supported_archive(&item.path) {
+                to_open_archive = Some(item.path.clone());
+            } else {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&item.path)
+                    .spawn();
+            }
+        }
 
         if let Some(p) = to_navigate {
             self.navigate_local(&p);
@@ -1224,8 +1267,10 @@ impl LinrarApp {
     fn render_archive_table(&mut self, ui: &mut egui::Ui) {
         let mut enter_folder = None;
         let mut to_view_file = false;
-        let visible_entries = self.visible_archive_entries();
         let is_ctrl = ui.input(|i| i.modifiers.ctrl);
+        let total_entries = self.cached_visible_entries.len();
+        let mut clicked_idx = None;
+        let mut double_clicked_idx = None;
 
         TableBuilder::new(ui)
             .striped(true)
@@ -1253,8 +1298,13 @@ impl LinrarApp {
                     ui.strong("CRC32");
                 });
             })
-            .body(|mut body| {
-                for entry in visible_entries {
+            .body(|body| {
+                body.rows(22.0, total_entries, |mut row| {
+                    let index = row.index();
+                    if index >= self.cached_visible_entries.len() {
+                        return;
+                    }
+                    let entry = &self.cached_visible_entries[index];
                     let is_selected = self.selected_archive_files.contains(&entry.full_path);
                     let icon = self.icons.as_ref().and_then(|ic| {
                         if entry.is_dir {
@@ -1270,71 +1320,79 @@ impl LinrarApp {
                         }
                     });
 
-                    body.row(22.0, |mut row| {
-                        row.set_selected(is_selected);
+                    row.set_selected(is_selected);
 
-                        row.col(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
-                                if let Some(tex) = icon {
-                                    ui.add(egui::Image::from_texture((
-                                        tex.id(),
-                                        egui::vec2(16.0, 16.0),
-                                    )));
-                                }
-                                ui.label(&entry.name);
-                            });
-                        });
-
-                        row.col(|ui| {
-                            ui.label(Self::format_size(entry.size));
-                        });
-
-                        row.col(|ui| {
-                            ui.label(Self::format_size(entry.packed_size));
-                        });
-
-                        row.col(|ui| {
-                            let ratio = if entry.size > 0 {
-                                format!(
-                                    "{:.0}%",
-                                    (entry.packed_size as f64 / entry.size as f64) * 100.0
-                                )
-                            } else {
-                                "-".to_string()
-                            };
-                            ui.label(ratio);
-                        });
-
-                        row.col(|ui| {
-                            ui.monospace(&entry.crc);
-                        });
-
-                        let resp = row.response();
-
-                        if resp.clicked() {
-                            if is_ctrl {
-                                if is_selected {
-                                    self.selected_archive_files
-                                        .retain(|p| p != &entry.full_path);
-                                } else {
-                                    self.selected_archive_files.push(entry.full_path.clone());
-                                }
-                            } else {
-                                self.selected_archive_files = vec![entry.full_path.clone()];
+                    row.col(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                            if let Some(tex) = icon {
+                                ui.add(egui::Image::from_texture((
+                                    tex.id(),
+                                    egui::vec2(16.0, 16.0),
+                                )));
                             }
-                        }
-
-                        if resp.double_clicked() {
-                            if entry.is_dir {
-                                enter_folder = Some(entry.name.clone());
-                            } else {
-                                to_view_file = true;
-                            }
-                        }
+                            ui.label(&entry.name);
+                        });
                     });
-                }
+
+                    row.col(|ui| {
+                        ui.label(Self::format_size(entry.size));
+                    });
+
+                    row.col(|ui| {
+                        ui.label(Self::format_size(entry.packed_size));
+                    });
+
+                    row.col(|ui| {
+                        let ratio = if entry.size > 0 {
+                            format!(
+                                "{:.0}%",
+                                (entry.packed_size as f64 / entry.size as f64) * 100.0
+                            )
+                        } else {
+                            "-".to_string()
+                        };
+                        ui.label(ratio);
+                    });
+
+                    row.col(|ui| {
+                        ui.monospace(&entry.crc);
+                    });
+
+                    let resp = row.response();
+                    if resp.clicked() {
+                        clicked_idx = Some(index);
+                    }
+                    if resp.double_clicked() {
+                        double_clicked_idx = Some(index);
+                    }
+                });
             });
+
+        if let Some(idx) = clicked_idx
+            && let Some(entry) = self.cached_visible_entries.get(idx)
+        {
+            if is_ctrl {
+                if self.selected_archive_files.contains(&entry.full_path) {
+                    self.selected_archive_files
+                        .retain(|p| p != &entry.full_path);
+                } else {
+                    self.selected_archive_files.push(entry.full_path.clone());
+                }
+            } else {
+                self.selected_archive_files = vec![entry.full_path.clone()];
+            }
+        }
+
+        if let Some(idx) = double_clicked_idx
+            && let Some(entry) = self.cached_visible_entries.get(idx)
+        {
+            if entry.is_dir {
+                enter_folder = Some(entry.name.clone());
+            } else {
+                to_view_file = true;
+            }
+        }
 
         if let Some(folder) = enter_folder {
             if self.archive_subpath.is_empty() {
@@ -1342,6 +1400,7 @@ impl LinrarApp {
             } else {
                 self.archive_subpath = format!("{}/{}", self.archive_subpath, folder);
             }
+            self.update_visible_entries();
         }
 
         if to_view_file {
@@ -1367,6 +1426,7 @@ impl LinrarApp {
                     } else {
                         self.archive_subpath = parts[..parts.len() - 1].join("/");
                     }
+                    self.update_visible_entries();
                 }
             }
         }
@@ -2793,7 +2853,7 @@ impl LinrarApp {
             }
 
             DialogState::Benchmark { runner } => {
-                ctx.request_repaint();
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
                 let mut is_open = true;
                 let win_resp = egui::Window::new("Benchmark and Hardware Test")
                     .open(&mut is_open)

@@ -292,6 +292,9 @@ impl TarEngine {
             ArchiveType::TarXz => TarWriter::Xz(XzEncoder::new(file, xz_level)),
             ArchiveType::TarZst => match zstd::stream::write::Encoder::new(file, zstd_level) {
                 Ok(mut enc) => {
+                    let _ = enc.set_parameter(zstd::zstd_safe::CParameter::NbWorkers(
+                        rayon::current_num_threads() as u32,
+                    ));
                     if let Ok(Some(ldm_cfg)) = crate::core::ldm::LdmConfig::from_dict_str(
                         options.dict_size.as_deref(),
                         options.ldm,
