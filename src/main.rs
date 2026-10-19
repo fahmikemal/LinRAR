@@ -739,6 +739,38 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 out_path.display()
             );
         }
+
+        Commands::Join { first_part, output } => {
+            let part1_path = PathBuf::from(&first_part);
+            let parts = match crate::core::volume::VolumeManager::find_volume_parts(&part1_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Error locating volume parts: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let out_path = if let Some(out) = output {
+                PathBuf::from(out)
+            } else {
+                let s = first_part.strip_suffix(".001").unwrap_or(&first_part);
+                PathBuf::from(s)
+            };
+
+            println!(
+                "LinRAR 0.1.0 - Joining {} volume part(s) into: {}",
+                parts.len(),
+                out_path.display()
+            );
+
+            match crate::core::volume::VolumeManager::join_files(&parts, &out_path) {
+                Ok(_) => println!("Done. Volumes joined successfully: {}", out_path.display()),
+                Err(e) => {
+                    eprintln!("Error joining volumes: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
 

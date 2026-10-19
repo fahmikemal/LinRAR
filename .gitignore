@@ -3,7 +3,6 @@
 /rar
 /unrar
 /linrar_app
-/tests
 linrar.py
 generate_icons.py
 *.rartemp

@@ -213,7 +213,11 @@ pub enum Commands {
     )]
     Sfx {
         archive: String,
-        #[arg(help = "Output SFX executable path [default: <archive>.sfx]")]
+        #[arg(
+            short = 'o',
+            long = "output",
+            help = "Output SFX executable path [default: <archive>.sfx]"
+        )]
         output: Option<String>,
         #[arg(long, help = "SFX archive title/description")]
         title: Option<String>,
@@ -226,6 +230,16 @@ pub enum Commands {
             help = "Create universal POSIX shell script (.run) instead of ELF executable (.sfx)"
         )]
         shell: bool,
+    },
+
+    #[command(
+        name = "join",
+        about = "Join split multi-volume archive parts (.001, .002, ...)"
+    )]
+    Join {
+        first_part: String,
+        #[arg(help = "Output joined file path [default: strips .001 suffix]")]
+        output: Option<String>,
     },
 }
 

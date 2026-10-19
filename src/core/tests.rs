@@ -977,7 +977,7 @@ fn synthesize_test_iso(path: &std::path::Path) {
     ) -> usize {
         let name_len = name.len();
         let mut rec_len = 33 + name_len;
-        if rec_len % 2 != 0 {
+        if !rec_len.is_multiple_of(2) {
             rec_len += 1;
         }
         buf[pos] = rec_len as u8;
