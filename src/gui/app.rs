@@ -40,6 +40,70 @@ pub struct LocalFileItem {
     pub modified: String,
 }
 
+pub enum BackgroundTaskResult {
+    AddArchiveCompleted {
+        archive_path: PathBuf,
+        message: String,
+    },
+    ExtractCompleted {
+        dest: PathBuf,
+        message: String,
+    },
+    TestCompleted {
+        title: String,
+        message: String,
+        is_error: bool,
+    },
+    ScanCompleted(Result<crate::core::scanner::ScanResult, String>),
+    ConvertCompleted {
+        output_path: PathBuf,
+        message: String,
+    },
+    SfxCompleted {
+        output_path: PathBuf,
+        message: String,
+    },
+    RepairCompleted {
+        result: crate::core::repair::RepairResult,
+    },
+    Error {
+        title: String,
+        message: String,
+    },
+}
+
+#[derive(Clone)]
+enum DialogAction {
+    None,
+    SpawnAdd {
+        arch_path: PathBuf,
+        sources: Vec<PathBuf>,
+        opts: AddOptions,
+        is_sfx: bool,
+        sfx_opts: Option<crate::core::sfx::SfxOptions>,
+        format: ArchiveType,
+    },
+    SpawnExtract {
+        archive_path: PathBuf,
+        base_dest: PathBuf,
+        arch_type: ArchiveType,
+        pwd: Option<String>,
+        smart_extract: bool,
+    },
+    SpawnConvert {
+        source_path: PathBuf,
+        target_format: ArchiveType,
+    },
+    SpawnSfx {
+        source_path: PathBuf,
+        output_path: PathBuf,
+        opts: crate::core::sfx::SfxOptions,
+    },
+    SpawnRepair {
+        archive_path: PathBuf,
+    },
+}
+
 pub struct LinrarApp {
     pub view_mode: ViewMode,
     pub current_dir: PathBuf,
@@ -62,6 +126,7 @@ pub struct LinrarApp {
     pub theme_mode: ThemeMode,
     pub current_encoding: ArchiveEncoding,
     pub last_window_title: String,
+    pub active_task: Option<std::sync::mpsc::Receiver<BackgroundTaskResult>>,
 }
 
 impl LinrarApp {
@@ -88,6 +153,7 @@ impl LinrarApp {
             theme_mode: ThemeMode::Dark,
             current_encoding: ArchiveEncoding::Auto,
             last_window_title: String::new(),
+            active_task: None,
         };
 
         if let Some(path) = initial_path {
@@ -418,6 +484,29 @@ impl eframe::App for LinrarApp {
                 .send_viewport_cmd(egui::ViewportCommand::Title(window_title.clone()));
             self.last_window_title = window_title;
         }
+
+        // Poll background async tasks if active
+        if let Some(rx) = &self.active_task {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.active_task = None;
+                    self.handle_background_task_result(result);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(50));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.active_task = None;
+                    self.dialog_state = DialogState::Message {
+                        title: "Operation Interrupted".to_string(),
+                        message: "The background task terminated unexpectedly.".to_string(),
+                        is_error: true,
+                    };
+                }
+            }
+        }
+
         self.handle_window_resize(ui.ctx());
 
         // --- Drag-and-Drop File Handling ---
@@ -1473,6 +1562,396 @@ impl LinrarApp {
         }
     }
 
+    fn handle_background_task_result(&mut self, result: BackgroundTaskResult) {
+        match result {
+            BackgroundTaskResult::AddArchiveCompleted {
+                archive_path,
+                message,
+            } => {
+                self.status_message = message;
+                self.dialog_state = DialogState::None;
+                self.refresh_local();
+                self.open_archive(&archive_path);
+            }
+            BackgroundTaskResult::ExtractCompleted { dest, message } => {
+                self.status_message = message;
+                self.dialog_state = DialogState::Message {
+                    title: "Extraction Completed".to_string(),
+                    message: format!("Files extracted successfully to:\n{}", dest.display()),
+                    is_error: false,
+                };
+                self.refresh_local();
+            }
+            BackgroundTaskResult::TestCompleted {
+                title,
+                message,
+                is_error,
+            } => {
+                self.status_message = title.clone();
+                self.dialog_state = DialogState::Message {
+                    title,
+                    message,
+                    is_error,
+                };
+            }
+            BackgroundTaskResult::ScanCompleted(scan_res) => match scan_res {
+                Ok(res) => {
+                    self.status_message = format!("Scan finished: {} threats", res.threats.len());
+                    self.dialog_state = DialogState::ScanResults(res);
+                }
+                Err(e) => {
+                    self.status_message = "Scan failed".to_string();
+                    self.dialog_state = DialogState::Message {
+                        title: "Scan Error".to_string(),
+                        message: e,
+                        is_error: true,
+                    };
+                }
+            },
+            BackgroundTaskResult::ConvertCompleted {
+                output_path,
+                message,
+            } => {
+                self.status_message = message;
+                self.dialog_state = DialogState::Message {
+                    title: "Convert Archive".to_string(),
+                    message: format!(
+                        "Archive converted successfully!\nSaved to: {}",
+                        output_path.display()
+                    ),
+                    is_error: false,
+                };
+                self.refresh_local();
+            }
+            BackgroundTaskResult::SfxCompleted {
+                output_path,
+                message,
+            } => {
+                self.status_message = message;
+                self.dialog_state = DialogState::Message {
+                    title: "Convert to SFX".to_string(),
+                    message: format!(
+                        "Self-extracting archive created successfully!\nSaved to: {}",
+                        output_path.display()
+                    ),
+                    is_error: false,
+                };
+                self.refresh_local();
+            }
+            BackgroundTaskResult::RepairCompleted { result } => {
+                self.status_message = if result.success {
+                    "Repair succeeded".to_string()
+                } else {
+                    "Repair completed with warnings".to_string()
+                };
+                self.dialog_state = DialogState::RepairArchive {
+                    archive_path: result.fixed_path.clone(),
+                    result: Some(result),
+                };
+                self.refresh_local();
+            }
+            BackgroundTaskResult::Error { title, message } => {
+                self.status_message = format!("Error: {}", title);
+                self.dialog_state = DialogState::Message {
+                    title,
+                    message,
+                    is_error: true,
+                };
+            }
+        }
+    }
+
+    fn start_add_task(
+        &mut self,
+        arch_path: PathBuf,
+        sources: Vec<PathBuf>,
+        opts: AddOptions,
+        is_sfx: bool,
+        sfx_opts: Option<crate::core::sfx::SfxOptions>,
+        format: ArchiveType,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.active_task = Some(rx);
+        let name = arch_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        self.dialog_state = DialogState::TaskProgress {
+            title: "Adding Files to Archive".to_string(),
+            status: format!("Compressing files into {}...", name),
+        };
+
+        std::thread::spawn(move || {
+            let res = if is_sfx {
+                if let Some(s_opts) = sfx_opts {
+                    crate::core::sfx::SfxEngine::create_sfx(&arch_path, &sources, &s_opts)
+                } else {
+                    Err("Missing SFX configuration".to_string())
+                }
+            } else {
+                match format {
+                    ArchiveType::Dedup => {
+                        crate::core::dedup::DedupEngine::create_archive(&arch_path, &sources, &opts)
+                            .map(|_| ())
+                    }
+                    ArchiveType::Rar5 | ArchiveType::Rar4 => {
+                        RarEngine::create(&arch_path, &sources, &opts)
+                    }
+                    ArchiveType::Zip => ZipEngine::create(&arch_path, &sources, &opts),
+                    ArchiveType::Tar
+                    | ArchiveType::TarGz
+                    | ArchiveType::TarBz2
+                    | ArchiveType::TarXz
+                    | ArchiveType::TarZst => TarEngine::create(&arch_path, &sources, format, &opts),
+                    ArchiveType::SevenZip => SevenZipEngine::create(&arch_path, &sources, &opts),
+                    _ => Err("Unsupported format".to_string()),
+                }
+            };
+
+            match res {
+                Ok(()) => {
+                    if opts.delete_after_archiving {
+                        if opts.shred_after_archiving {
+                            crate::core::shredder::FileShredder::shred_paths(
+                                &sources,
+                                opts.shred_method,
+                            );
+                        } else {
+                            for src in &sources {
+                                if src.is_dir() {
+                                    let _ = std::fs::remove_dir_all(src);
+                                } else {
+                                    let _ = std::fs::remove_file(src);
+                                }
+                            }
+                        }
+                    }
+                    let _ = tx.send(BackgroundTaskResult::AddArchiveCompleted {
+                        archive_path: arch_path,
+                        message: "Archive created successfully".to_string(),
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(BackgroundTaskResult::Error {
+                        title: "Archiving Failed".to_string(),
+                        message: e,
+                    });
+                }
+            }
+        });
+    }
+
+    fn start_extract_task(
+        &mut self,
+        archive_path: PathBuf,
+        base_dest: PathBuf,
+        arch_type: ArchiveType,
+        pwd: Option<String>,
+        smart_extract: bool,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.active_task = Some(rx);
+        let name = archive_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        self.dialog_state = DialogState::TaskProgress {
+            title: "Extracting Archive".to_string(),
+            status: format!("Extracting files from {}...", name),
+        };
+        let encoding = self.current_encoding;
+
+        std::thread::spawn(move || {
+            let pwd_ref = pwd.as_deref();
+
+            let dest = if smart_extract {
+                let entries_res = match arch_type {
+                    ArchiveType::Zip => {
+                        ZipEngine::read_entries_with_encoding(&archive_path, encoding)
+                            .map(|(_, e)| e)
+                    }
+                    ArchiveType::Tar
+                    | ArchiveType::TarGz
+                    | ArchiveType::TarBz2
+                    | ArchiveType::TarXz
+                    | ArchiveType::TarZst => {
+                        TarEngine::read_entries_with_encoding(&archive_path, arch_type, encoding)
+                            .map(|(_, e)| e)
+                    }
+                    ArchiveType::SevenZip => {
+                        SevenZipEngine::read_entries(&archive_path, pwd_ref).map(|(_, e)| e)
+                    }
+                    ArchiveType::Iso => IsoEngine::read_entries(&archive_path).map(|(_, e)| e),
+                    ArchiveType::Sfx => {
+                        crate::core::sfx::SfxEngine::read_entries(archive_path.as_path())
+                            .map(|(_, e)| e)
+                    }
+                    ArchiveType::Dedup => {
+                        crate::core::dedup::DedupEngine::read_entries(archive_path.as_path())
+                            .map(|(_, e)| e)
+                    }
+                    _ => RarEngine::read_entries(archive_path.as_path()).map(|(_, e)| e),
+                };
+                match entries_res {
+                    Ok(entries) => {
+                        crate::core::smart_extract::SmartExtractor::determine_destination(
+                            archive_path.as_path(),
+                            &base_dest,
+                            &entries,
+                        )
+                    }
+                    Err(_) => base_dest,
+                }
+            } else {
+                base_dest
+            };
+
+            let _ = fs::create_dir_all(&dest);
+
+            let res = match arch_type {
+                ArchiveType::Dedup => {
+                    crate::core::dedup::DedupEngine::extract(archive_path.as_path(), &dest, None)
+                }
+                ArchiveType::Rar5 | ArchiveType::Rar4 => {
+                    RarEngine::extract(&archive_path, &dest, None, pwd_ref)
+                }
+                ArchiveType::Zip => {
+                    ZipEngine::extract_with_encoding(&archive_path, &dest, None, pwd_ref, encoding)
+                }
+                ArchiveType::Tar
+                | ArchiveType::TarGz
+                | ArchiveType::TarBz2
+                | ArchiveType::TarXz
+                | ArchiveType::TarZst => TarEngine::extract_with_encoding(
+                    &archive_path,
+                    &dest,
+                    arch_type,
+                    None,
+                    encoding,
+                ),
+                ArchiveType::SevenZip => {
+                    SevenZipEngine::extract(&archive_path, &dest, None, pwd_ref)
+                }
+                ArchiveType::Iso => IsoEngine::extract(&archive_path, &dest, None),
+                ArchiveType::Sfx => {
+                    crate::core::sfx::SfxEngine::extract(&archive_path, &dest, None)
+                }
+                _ => Err("Unsupported format".to_string()),
+            };
+
+            match res {
+                Ok(()) => {
+                    let _ = tx.send(BackgroundTaskResult::ExtractCompleted {
+                        dest,
+                        message: "Extraction completed successfully".to_string(),
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(BackgroundTaskResult::Error {
+                        title: "Extraction Failed".to_string(),
+                        message: e,
+                    });
+                }
+            }
+        });
+    }
+
+    fn start_convert_task(&mut self, source_path: PathBuf, target_format: ArchiveType) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.active_task = Some(rx);
+        let name = source_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        self.dialog_state = DialogState::TaskProgress {
+            title: "Converting Archive".to_string(),
+            status: format!("Converting {} to {}...", name, target_format.name()),
+        };
+
+        std::thread::spawn(move || {
+            let opts = AddOptions::default();
+            match ArchiveConverter::convert(&source_path, target_format, &opts) {
+                Ok(out) => {
+                    let _ = tx.send(BackgroundTaskResult::ConvertCompleted {
+                        output_path: out,
+                        message: "Archive converted successfully".to_string(),
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(BackgroundTaskResult::Error {
+                        title: "Convert Archive Error".to_string(),
+                        message: e,
+                    });
+                }
+            }
+        });
+    }
+
+    fn start_sfx_task(
+        &mut self,
+        source_path: PathBuf,
+        output_path: PathBuf,
+        opts: crate::core::sfx::SfxOptions,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.active_task = Some(rx);
+        let name = output_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        self.dialog_state = DialogState::TaskProgress {
+            title: "Building SFX Executable".to_string(),
+            status: format!("Packaging self-extracting archive: {}...", name),
+        };
+
+        std::thread::spawn(move || {
+            match crate::core::sfx::SfxEngine::convert_to_sfx(&source_path, &output_path, &opts) {
+                Ok(()) => {
+                    let _ = tx.send(BackgroundTaskResult::SfxCompleted {
+                        output_path,
+                        message: "SFX archive created successfully".to_string(),
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(BackgroundTaskResult::Error {
+                        title: "SFX Creation Error".to_string(),
+                        message: e,
+                    });
+                }
+            }
+        });
+    }
+
+    fn start_repair_task(&mut self, archive_path: PathBuf) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.active_task = Some(rx);
+        let name = archive_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        self.dialog_state = DialogState::TaskProgress {
+            title: "Repairing Archive".to_string(),
+            status: format!("Reconstructing headers and recovery data: {}...", name),
+        };
+
+        std::thread::spawn(move || match ArchiveRepair::repair(&archive_path) {
+            Ok(res) => {
+                let _ = tx.send(BackgroundTaskResult::RepairCompleted { result: res });
+            }
+            Err(e) => {
+                let _ = tx.send(BackgroundTaskResult::Error {
+                    title: "Repair Error".to_string(),
+                    message: e,
+                });
+            }
+        });
+    }
+
     fn trigger_test_archive(&mut self) {
         let target = match self.view_mode {
             ViewMode::VirtualArchive => self.current_archive.clone(),
@@ -1482,48 +1961,57 @@ impl LinrarApp {
         if let Some(path) = target {
             if is_supported_archive(&path) {
                 let arch_type = detect_archive_type(&path);
-                let res = match arch_type {
-                    ArchiveType::Zip => ZipEngine::test(&path, None),
-                    ArchiveType::TarGz
-                    | ArchiveType::TarBz2
-                    | ArchiveType::TarXz
-                    | ArchiveType::TarZst
-                    | ArchiveType::Tar => TarEngine::test(&path, arch_type),
-                    ArchiveType::SevenZip => SevenZipEngine::test(&path, None),
-                    ArchiveType::Iso => IsoEngine::test(&path),
-                    ArchiveType::Dedup => crate::core::dedup::DedupEngine::test(&path),
-                    _ => RarEngine::test(&path),
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.active_task = Some(rx);
+                let arch_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                self.dialog_state = DialogState::TaskProgress {
+                    title: "Verifying Integrity".to_string(),
+                    status: format!("Verifying {} checksums & hashes...", arch_name),
                 };
 
-                match res {
-                    Ok(true) => {
-                        self.dialog_state = DialogState::Message {
+                let path_clone = path.clone();
+                std::thread::spawn(move || {
+                    let res = match arch_type {
+                        ArchiveType::Zip => ZipEngine::test(&path_clone, None),
+                        ArchiveType::TarGz
+                        | ArchiveType::TarBz2
+                        | ArchiveType::TarXz
+                        | ArchiveType::TarZst
+                        | ArchiveType::Tar => TarEngine::test(&path_clone, arch_type),
+                        ArchiveType::SevenZip => SevenZipEngine::test(&path_clone, None),
+                        ArchiveType::Iso => IsoEngine::test(&path_clone),
+                        ArchiveType::Dedup => crate::core::dedup::DedupEngine::test(&path_clone),
+                        _ => RarEngine::test(&path_clone),
+                    };
+
+                    let result = match res {
+                        Ok(true) => BackgroundTaskResult::TestCompleted {
                             title: "Test Archive Integrity".to_string(),
                             message: format!(
                                 "Archive: {}\n\nAll archive files passed integrity verification successfully. No errors found!",
-                                path.file_name().unwrap_or_default().to_string_lossy()
+                                arch_name
                             ),
                             is_error: false,
-                        };
-                    }
-                    Ok(false) => {
-                        self.dialog_state = DialogState::Message {
+                        },
+                        Ok(false) => BackgroundTaskResult::TestCompleted {
                             title: "Test Archive Integrity".to_string(),
                             message: format!(
                                 "Archive: {}\n\nErrors were detected during archive integrity testing.",
-                                path.file_name().unwrap_or_default().to_string_lossy()
+                                arch_name
                             ),
                             is_error: true,
-                        };
-                    }
-                    Err(e) => {
-                        self.dialog_state = DialogState::Message {
+                        },
+                        Err(e) => BackgroundTaskResult::Error {
                             title: "Test Archive Error".to_string(),
                             message: e,
-                            is_error: true,
-                        };
-                    }
-                }
+                        },
+                    };
+                    let _ = tx.send(result);
+                });
             } else {
                 self.dialog_state = DialogState::Message {
                     title: "Test Archive".to_string(),
@@ -2198,18 +2686,23 @@ impl LinrarApp {
         };
 
         if let Some(path) = arch_path {
-            match crate::core::scanner::VirusScanner::scan_archive(&path) {
-                Ok(res) => {
-                    self.dialog_state = DialogState::ScanResults(res);
-                }
-                Err(e) => {
-                    self.dialog_state = DialogState::Message {
-                        title: "Scan Error".to_string(),
-                        message: e,
-                        is_error: true,
-                    };
-                }
-            }
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.active_task = Some(rx);
+            let arch_name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            self.dialog_state = DialogState::TaskProgress {
+                title: "Virus & Threat Scan".to_string(),
+                status: format!("Scanning {} for malware and virus signatures...", arch_name),
+            };
+
+            let path_clone = path.clone();
+            std::thread::spawn(move || {
+                let res = crate::core::scanner::VirusScanner::scan_archive(&path_clone);
+                let _ = tx.send(BackgroundTaskResult::ScanCompleted(res));
+            });
         } else {
             self.dialog_state = DialogState::Message {
                 title: "Scan Archive".to_string(),
@@ -2227,12 +2720,14 @@ impl LinrarApp {
 
         self.dialog_frames_open = self.dialog_frames_open.saturating_add(1);
 
+        let is_running_task = matches!(self.dialog_state, DialogState::TaskProgress { .. });
         let mut close_dialog = false;
         let any_popup_open = egui::Popup::is_any_open(ctx);
 
-        // 1. ESC key closes the dialog
+        // 1. ESC key closes the dialog (unless an async background task is executing)
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
             && !any_popup_open
+            && !is_running_task
         {
             close_dialog = true;
         }
@@ -2256,7 +2751,7 @@ impl LinrarApp {
         let accent_color = self.accent_color();
         let is_light_theme = self.theme_mode == ThemeMode::Light;
         let mut dialog_window_rect: Option<egui::Rect> = None;
-        let mut post_add_refresh: Option<PathBuf> = None;
+        let mut pending_action = DialogAction::None;
         let initial_discriminant = std::mem::discriminant(&self.dialog_state);
 
         match &mut self.dialog_state {
@@ -2515,8 +3010,8 @@ impl LinrarApp {
                                 };
 
                                 let arch_path = PathBuf::from(&archive_name);
-                                let res = if *is_sfx {
-                                    let sfx_opts = crate::core::sfx::SfxOptions {
+                                let sfx_opts = if *is_sfx {
+                                    Some(crate::core::sfx::SfxOptions {
                                         format: *sfx_format,
                                         title: arch_path
                                             .file_stem()
@@ -2531,58 +3026,19 @@ impl LinrarApp {
                                         },
                                         overwrite: true,
                                         quiet: false,
-                                    };
-                                    crate::core::sfx::SfxEngine::create_sfx(&arch_path, sources, &sfx_opts)
+                                    })
                                 } else {
-                                    match format {
-                                        ArchiveType::Dedup => {
-                                            crate::core::dedup::DedupEngine::create_archive(
-                                                &arch_path, sources, &opts,
-                                            )
-                                            .map(|_| ())
-                                        }
-                                        ArchiveType::Rar5 | ArchiveType::Rar4 => {
-                                            RarEngine::create(&arch_path, sources, &opts)
-                                        }
-                                        ArchiveType::Zip => {
-                                            ZipEngine::create(&arch_path, sources, &opts)
-                                        }
-                                        ArchiveType::Tar
-                                        | ArchiveType::TarGz
-                                        | ArchiveType::TarBz2
-                                        | ArchiveType::TarXz
-                                        | ArchiveType::TarZst => {
-                                            TarEngine::create(&arch_path, sources, *format, &opts)
-                                        }
-                                        ArchiveType::SevenZip => {
-                                            SevenZipEngine::create(&arch_path, sources, &opts)
-                                        }
-                                        _ => Err("Unsupported format".to_string()),
-                                    }
+                                    None
                                 };
 
-                                close_dialog = true;
-                                if let Err(e) = res {
-                                    eprintln!("Add archive error: {}", e);
-                                } else {
-                                    if opts.delete_after_archiving {
-                                        if opts.shred_after_archiving {
-                                            crate::core::shredder::FileShredder::shred_paths(
-                                                sources,
-                                                opts.shred_method,
-                                            );
-                                        } else {
-                                            for src in sources {
-                                                if src.is_dir() {
-                                                    let _ = std::fs::remove_dir_all(src);
-                                                } else {
-                                                    let _ = std::fs::remove_file(src);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    post_add_refresh = Some(arch_path);
-                                }
+                                pending_action = DialogAction::SpawnAdd {
+                                    arch_path,
+                                    sources: sources.clone(),
+                                    opts,
+                                    is_sfx: *is_sfx,
+                                    sfx_opts,
+                                    format: *format,
+                                };
                             }
 
                             if ui.button("Cancel").clicked() {
@@ -2648,105 +3104,17 @@ impl LinrarApp {
                                 let pwd = if password.is_empty() {
                                     None
                                 } else {
-                                    Some(password.as_str())
+                                    Some(password.clone())
                                 };
                                 let base_dest = PathBuf::from(&dest_path);
 
-                                let dest = if *smart_extract {
-                                    let entries_res = match arch_type {
-                                        ArchiveType::Zip => {
-                                            ZipEngine::read_entries_with_encoding(
-                                                &archive_path,
-                                                self.current_encoding,
-                                            )
-                                            .map(|(_, e)| e)
-                                        }
-                                        ArchiveType::Tar
-                                        | ArchiveType::TarGz
-                                        | ArchiveType::TarBz2
-                                        | ArchiveType::TarXz
-                                        | ArchiveType::TarZst => {
-                                            TarEngine::read_entries_with_encoding(
-                                                &archive_path,
-                                                arch_type,
-                                                self.current_encoding,
-                                            )
-                                            .map(|(_, e)| e)
-                                        }
-                                        ArchiveType::SevenZip => {
-                                            SevenZipEngine::read_entries(&archive_path, pwd)
-                                                .map(|(_, e)| e)
-                                        }
-                                        ArchiveType::Iso => {
-                                            IsoEngine::read_entries(&archive_path).map(|(_, e)| e)
-                                        }
-                                        ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(
-                                            archive_path.as_path(),
-                                        )
-                                        .map(|(_, e)| e),
-                                        ArchiveType::Dedup => {
-                                            crate::core::dedup::DedupEngine::read_entries(
-                                                archive_path.as_path(),
-                                            )
-                                            .map(|(_, e)| e)
-                                        }
-                                        _ => RarEngine::read_entries(archive_path.as_path())
-                                            .map(|(_, e)| e),
-                                    };
-                                    match entries_res {
-                                        Ok(entries) => {
-                                            crate::core::smart_extract::SmartExtractor::determine_destination(
-                                                archive_path.as_path(),
-                                                &base_dest,
-                                                &entries,
-                                            )
-                                        }
-                                        Err(_) => base_dest,
-                                    }
-                                } else {
-                                    base_dest
+                                pending_action = DialogAction::SpawnExtract {
+                                    archive_path: archive_path.clone(),
+                                    base_dest,
+                                    arch_type,
+                                    pwd,
+                                    smart_extract: *smart_extract,
                                 };
-
-                                let _ = fs::create_dir_all(&dest);
-
-                                let _ = match arch_type {
-                                    ArchiveType::Dedup => crate::core::dedup::DedupEngine::extract(
-                                        archive_path.as_path(),
-                                        &dest,
-                                        None,
-                                    ),
-                                    ArchiveType::Rar5 | ArchiveType::Rar4 => {
-                                        RarEngine::extract(archive_path, &dest, None, pwd)
-                                    }
-                                    ArchiveType::Zip => ZipEngine::extract_with_encoding(
-                                        archive_path,
-                                        &dest,
-                                        None,
-                                        pwd,
-                                        self.current_encoding,
-                                    ),
-                                    ArchiveType::Tar
-                                    | ArchiveType::TarGz
-                                    | ArchiveType::TarBz2
-                                    | ArchiveType::TarXz
-                                    | ArchiveType::TarZst => TarEngine::extract_with_encoding(
-                                        archive_path,
-                                        &dest,
-                                        arch_type,
-                                        None,
-                                        self.current_encoding,
-                                    ),
-                                    ArchiveType::SevenZip => {
-                                        SevenZipEngine::extract(archive_path, &dest, None, pwd)
-                                    }
-                                    ArchiveType::Iso => IsoEngine::extract(archive_path, &dest, None),
-                                    ArchiveType::Sfx => {
-                                        crate::core::sfx::SfxEngine::extract(archive_path, &dest, None)
-                                    }
-                                    _ => Err("Unsupported format".to_string()),
-                                };
-
-                                close_dialog = true;
                             }
 
                             if ui.button("Cancel").clicked() {
@@ -3166,7 +3534,6 @@ impl LinrarApp {
                 source_path,
                 target_format,
             } => {
-                let mut do_convert = false;
                 let src_clone = source_path.clone();
                 let fmt_clone = *target_format;
 
@@ -3221,7 +3588,10 @@ impl LinrarApp {
                         ui.separator();
                         ui.horizontal(|ui| {
                             if ui.button(RichText::new("Convert").strong()).clicked() {
-                                do_convert = true;
+                                pending_action = DialogAction::SpawnConvert {
+                                    source_path: src_clone,
+                                    target_format: fmt_clone,
+                                };
                             }
                             if ui.button("Cancel").clicked() {
                                 close_dialog = true;
@@ -3234,30 +3604,6 @@ impl LinrarApp {
                 if !is_open {
                     close_dialog = true;
                 }
-
-                if do_convert {
-                    let opts = AddOptions::default();
-                    match ArchiveConverter::convert(&src_clone, fmt_clone, &opts) {
-                        Ok(out) => {
-                            self.dialog_state = DialogState::Message {
-                                title: "Convert Archive".to_string(),
-                                message: format!(
-                                    "Archive converted successfully!\nSaved to: {}",
-                                    out.display()
-                                ),
-                                is_error: false,
-                            };
-                            self.refresh_local();
-                        }
-                        Err(e) => {
-                            self.dialog_state = DialogState::Message {
-                                title: "Conversion Error".to_string(),
-                                message: e,
-                                is_error: true,
-                            };
-                        }
-                    }
-                }
             }
 
             DialogState::SfxArchive {
@@ -3269,7 +3615,6 @@ impl LinrarApp {
                 run_after,
                 overwrite,
             } => {
-                let mut do_create_sfx = false;
                 let src_clone = source_path.clone();
                 let out_clone = PathBuf::from(&output_path);
                 let opts = crate::core::sfx::SfxOptions {
@@ -3388,7 +3733,11 @@ impl LinrarApp {
                         ui.separator();
                         ui.horizontal(|ui| {
                             if ui.button(RichText::new("📦 Create SFX").strong()).clicked() {
-                                do_create_sfx = true;
+                                pending_action = DialogAction::SpawnSfx {
+                                    source_path: src_clone,
+                                    output_path: out_clone,
+                                    opts,
+                                };
                             }
                             if ui.button("Cancel").clicked() {
                                 close_dialog = true;
@@ -3402,37 +3751,12 @@ impl LinrarApp {
                 if !is_open {
                     close_dialog = true;
                 }
-
-                if do_create_sfx {
-                    match crate::core::sfx::SfxEngine::convert_to_sfx(&src_clone, &out_clone, &opts)
-                    {
-                        Ok(()) => {
-                            self.dialog_state = DialogState::Message {
-                                title: "Convert to SFX".to_string(),
-                                message: format!(
-                                    "Self-extracting archive created successfully!\nSaved to: {}",
-                                    out_clone.display()
-                                ),
-                                is_error: false,
-                            };
-                            self.refresh_local();
-                        }
-                        Err(e) => {
-                            self.dialog_state = DialogState::Message {
-                                title: "SFX Creation Error".to_string(),
-                                message: e,
-                                is_error: true,
-                            };
-                        }
-                    }
-                }
             }
 
             DialogState::RepairArchive {
                 archive_path,
                 result,
             } => {
-                let mut do_repair = false;
                 let arch_clone = archive_path.clone();
 
                 let mut is_open = true;
@@ -3475,7 +3799,9 @@ impl LinrarApp {
                             if result.is_none()
                                 && ui.button(RichText::new("Start Repair").strong()).clicked()
                             {
-                                do_repair = true;
+                                pending_action = DialogAction::SpawnRepair {
+                                    archive_path: arch_clone,
+                                };
                             }
                             if ui.button("Close").clicked() {
                                 close_dialog = true;
@@ -3487,22 +3813,6 @@ impl LinrarApp {
                 }
                 if !is_open {
                     close_dialog = true;
-                }
-
-                if do_repair {
-                    match ArchiveRepair::repair(&arch_clone) {
-                        Ok(res) => {
-                            *result = Some(res);
-                            self.refresh_local();
-                        }
-                        Err(e) => {
-                            self.dialog_state = DialogState::Message {
-                                title: "Repair Error".to_string(),
-                                message: e,
-                                is_error: true,
-                            };
-                        }
-                    }
                 }
             }
 
@@ -3755,10 +4065,80 @@ impl LinrarApp {
                     close_dialog = true;
                 }
             }
+
+            DialogState::TaskProgress { title, status } => {
+                let win_resp = egui::Window::new(title.as_str())
+                    .order(egui::Order::Foreground)
+                    .pivot(egui::Align2::CENTER_CENTER)
+                    .default_pos(center)
+                    .resizable(false)
+                    .collapsible(false)
+                    .default_width(380.0)
+                    .show(ctx, |ui| {
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.add_space(8.0);
+                            ui.label(RichText::new(status.as_str()).strong());
+                        });
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("LinRAR is processing your request in the background...")
+                                .small()
+                                .color(Color32::from_gray(160)),
+                        );
+                        ui.add_space(8.0);
+                    });
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+            }
         }
 
-        // 3. Click outside the dialog window closes the dialog
-        if let Some(rect) = dialog_window_rect
+        let has_action = !matches!(pending_action, DialogAction::None);
+
+        match pending_action {
+            DialogAction::None => {}
+            DialogAction::SpawnAdd {
+                arch_path,
+                sources,
+                opts,
+                is_sfx,
+                sfx_opts,
+                format,
+            } => {
+                self.start_add_task(arch_path, sources, opts, is_sfx, sfx_opts, format);
+            }
+            DialogAction::SpawnExtract {
+                archive_path,
+                base_dest,
+                arch_type,
+                pwd,
+                smart_extract,
+            } => {
+                self.start_extract_task(archive_path, base_dest, arch_type, pwd, smart_extract);
+            }
+            DialogAction::SpawnConvert {
+                source_path,
+                target_format,
+            } => {
+                self.start_convert_task(source_path, target_format);
+            }
+            DialogAction::SpawnSfx {
+                source_path,
+                output_path,
+                opts,
+            } => {
+                self.start_sfx_task(source_path, output_path, opts);
+            }
+            DialogAction::SpawnRepair { archive_path } => {
+                self.start_repair_task(archive_path);
+            }
+        }
+
+        // 3. Click outside the dialog window closes the dialog (unless an async task is running)
+        if !is_running_task
+            && let Some(rect) = dialog_window_rect
             && self.dialog_frames_open > 1
             && ctx.input(|i| i.pointer.primary_clicked())
             && !any_popup_open
@@ -3773,24 +4153,12 @@ impl LinrarApp {
             self.dialog_frames_open = 0;
         }
 
-        if close_dialog {
+        if close_dialog && !has_action {
             if let DialogState::Benchmark { runner } = &mut self.dialog_state {
                 runner.stop();
             }
             self.dialog_state = DialogState::None;
             self.dialog_frames_open = 0;
-        }
-
-        if let Some(target) = post_add_refresh {
-            if let Some(cur) = self.current_archive.clone() {
-                if cur == target {
-                    self.open_archive(&cur);
-                } else {
-                    self.refresh_local();
-                }
-            } else {
-                self.refresh_local();
-            }
         }
     }
 }

@@ -1,8 +1,8 @@
-use fastcdc::v2020::FastCDC;
+use fastcdc::v2020::{ChunkData, StreamCDC};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use walkdir::WalkDir;
@@ -201,23 +201,25 @@ impl DedupEngine {
                 continue;
             }
 
-            // Read file data
-            let file_bytes = fs::read(f).map_err(|e| e.to_string())?;
-            let file_hash = hash_bytes(&file_bytes);
-            let mut file_chunks = Vec::new();
-
-            // Run FastCDC
-            let chunker = FastCDC::new(
-                &file_bytes,
+            // Read file data via streaming Content-Defined Chunking (bounded RAM footprint)
+            let file_handle = File::open(f).map_err(|e| e.to_string())?;
+            let reader = BufReader::with_capacity(128 * 1024, file_handle);
+            let chunker = StreamCDC::new(
+                reader,
                 DEFAULT_MIN_CHUNK,
                 DEFAULT_AVG_CHUNK,
                 DEFAULT_MAX_CHUNK,
             );
 
-            for chunk in chunker {
+            let mut file_hasher = blake3::Hasher::new();
+            let mut file_chunks = Vec::new();
+
+            for chunk_res in chunker {
+                let chunk: ChunkData = chunk_res
+                    .map_err(|e| format!("CDC chunking error in '{}': {e}", f.display()))?;
                 total_chunks += 1;
-                let chunk_slice = &file_bytes[chunk.offset..chunk.offset + chunk.length];
-                let c_hash = hash_bytes(chunk_slice);
+                file_hasher.update(&chunk.data);
+                let c_hash = hash_bytes(&chunk.data);
                 file_chunks.push(c_hash);
 
                 if let std::collections::hash_map::Entry::Vacant(e) = unique_chunk_map.entry(c_hash)
@@ -225,7 +227,7 @@ impl DedupEngine {
                     // New unique chunk: compress and write to chunk pool
                     deduplicated_raw_bytes += chunk.length as u64;
 
-                    let compressed = zstd::encode_all(chunk_slice, zstd_level)
+                    let compressed = zstd::encode_all(&chunk.data[..], zstd_level)
                         .map_err(|e| format!("Zstd chunk compression error: {e}"))?;
 
                     let current_offset = out_file.stream_position().map_err(|e| e.to_string())?;
@@ -243,6 +245,8 @@ impl DedupEngine {
                     e.insert((current_offset, compressed.len() as u32));
                 }
             }
+
+            let file_hash = *file_hasher.finalize().as_bytes();
 
             entries.push(DedupFileEntry {
                 path: rel_name,
@@ -546,7 +550,14 @@ impl DedupEngine {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
 
-            let mut out = File::create(&target).map_err(|e| e.to_string())?;
+            let temp_target = {
+                let pid = std::process::id();
+                let file_name = target.file_name().unwrap_or_default().to_string_lossy();
+                target.with_file_name(format!(".{}.tmp_{}", file_name, pid))
+            };
+
+            let f = File::create(&temp_target).map_err(|e| e.to_string())?;
+            let mut out = BufWriter::with_capacity(128 * 1024, f);
             let mut hasher = blake3::Hasher::new();
 
             for chash in &entry.chunk_hashes {
@@ -567,15 +578,19 @@ impl DedupEngine {
             }
 
             out.flush().map_err(|e| e.to_string())?;
+            drop(out);
 
             // Cryptographic integrity verification against metadata
             let actual_hash = *hasher.finalize().as_bytes();
             if entry.size > 0 && actual_hash != entry.file_blake3 {
+                let _ = fs::remove_file(&temp_target);
                 return Err(format!(
                     "Cryptographic BLAKE3 integrity check failed for extracted file '{}'",
                     entry.path
                 ));
             }
+
+            fs::rename(&temp_target, &target).map_err(|e| e.to_string())?;
 
             #[cfg(unix)]
             {

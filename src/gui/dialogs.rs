@@ -86,6 +86,10 @@ pub enum DialogState {
         message: String,
         is_error: bool,
     },
+    TaskProgress {
+        title: String,
+        status: String,
+    },
 }
 
 impl DialogState {
