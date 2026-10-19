@@ -1047,22 +1047,6 @@ impl eframe::App for LinrarApp {
 
                 let path_color = self.accent_color();
                 ui.monospace(RichText::new(current_display).color(path_color));
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let prev_enc = self.current_encoding;
-                    let mut chosen_enc = prev_enc;
-                    egui::ComboBox::from_id_salt("encoding_nav_combo")
-                        .selected_text(format!("🔤 {}", self.current_encoding.id().to_uppercase()))
-                        .width(90.0)
-                        .show_ui(ui, |ui| {
-                            for enc in ArchiveEncoding::all() {
-                                ui.selectable_value(&mut chosen_enc, *enc, enc.display_name());
-                            }
-                        });
-                    if chosen_enc != prev_enc {
-                        self.set_encoding(chosen_enc);
-                    }
-                });
             });
         });
 
