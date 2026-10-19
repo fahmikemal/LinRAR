@@ -13,8 +13,111 @@ const BZIP2_MAGIC: &[u8] = &[0x42, 0x5A, 0x68];
 const XZ_MAGIC: &[u8] = &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 const ZSTD_MAGIC: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
 
+pub fn is_archive_extension<P: AsRef<Path>>(path: P) -> bool {
+    let name_lower = path.as_ref().to_string_lossy().to_lowercase();
+    name_lower.ends_with(".zip")
+        || name_lower.ends_with(".tar.gz")
+        || name_lower.ends_with(".tgz")
+        || name_lower.ends_with(".tar.bz2")
+        || name_lower.ends_with(".tbz2")
+        || name_lower.ends_with(".tar.xz")
+        || name_lower.ends_with(".txz")
+        || name_lower.ends_with(".xz")
+        || name_lower.ends_with(".tar.zst")
+        || name_lower.ends_with(".tzst")
+        || name_lower.ends_with(".zst")
+        || name_lower.ends_with(".tar")
+        || name_lower.ends_with(".rar")
+        || name_lower.ends_with(".7z")
+        || name_lower.ends_with(".iso")
+        || name_lower.ends_with(".sfx")
+        || name_lower.ends_with(".run")
+        || name_lower.ends_with(".lrz")
+        || name_lower.ends_with(".linrar")
+}
+
+pub fn has_known_non_archive_extension<P: AsRef<Path>>(path: P) -> bool {
+    let path = path.as_ref();
+    let ext = match path.extension().and_then(|e| e.to_str()) {
+        Some(e) => e.to_lowercase(),
+        None => return false,
+    };
+    matches!(
+        ext.as_str(),
+        "mp4"
+            | "mkv"
+            | "avi"
+            | "mov"
+            | "wmv"
+            | "flv"
+            | "webm"
+            | "m4v"
+            | "3gp"
+            | "mp3"
+            | "flac"
+            | "wav"
+            | "aac"
+            | "ogg"
+            | "m4a"
+            | "wma"
+            | "jpg"
+            | "jpeg"
+            | "png"
+            | "gif"
+            | "webp"
+            | "bmp"
+            | "svg"
+            | "ico"
+            | "tiff"
+            | "txt"
+            | "md"
+            | "pdf"
+            | "doc"
+            | "docx"
+            | "xls"
+            | "xlsx"
+            | "ppt"
+            | "pptx"
+            | "csv"
+            | "json"
+            | "xml"
+            | "yaml"
+            | "yml"
+            | "toml"
+            | "sql"
+            | "log"
+            | "db"
+            | "sqlite"
+            | "c"
+            | "cpp"
+            | "h"
+            | "hpp"
+            | "rs"
+            | "go"
+            | "py"
+            | "js"
+            | "ts"
+            | "java"
+            | "html"
+            | "css"
+            | "pem"
+            | "crt"
+            | "key"
+            | "pub"
+            | "lock"
+            | "bin"
+            | "o"
+            | "so"
+            | "a"
+    )
+}
+
 pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
     let path = path.as_ref();
+    if has_known_non_archive_extension(path) {
+        return ArchiveType::Unknown;
+    }
+
     let name_lower = path.to_string_lossy().to_lowercase();
     let from_extension = if name_lower.ends_with(".zip") {
         ArchiveType::Zip
@@ -153,5 +256,12 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
 }
 
 pub fn is_supported_archive<P: AsRef<Path>>(path: P) -> bool {
+    let path = path.as_ref();
+    if is_archive_extension(path) {
+        return true;
+    }
+    if has_known_non_archive_extension(path) {
+        return false;
+    }
     detect_archive_type(path) != ArchiveType::Unknown
 }

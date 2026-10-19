@@ -35,6 +35,7 @@ pub struct LocalFileItem {
     pub name: String,
     pub path: PathBuf,
     pub is_dir: bool,
+    pub is_archive: bool,
     pub size: u64,
     pub modified: String,
 }
@@ -122,6 +123,7 @@ impl LinrarApp {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 let is_dir = path.is_dir();
+                let is_archive = !is_dir && is_supported_archive(&path);
                 let name = entry.file_name().to_string_lossy().to_string();
                 let size = if is_dir {
                     0
@@ -133,6 +135,7 @@ impl LinrarApp {
                     name,
                     path,
                     is_dir,
+                    is_archive,
                     size,
                     modified: "-".to_string(),
                 });
@@ -1169,7 +1172,7 @@ impl LinrarApp {
                     let icon = self.icons.as_ref().and_then(|ic| {
                         if item.is_dir {
                             ic.folder_icon.as_ref()
-                        } else if is_supported_archive(&item.path) {
+                        } else if item.is_archive {
                             ic.archive_icon.as_ref()
                         } else {
                             ic.file_icon.as_ref()
@@ -1232,7 +1235,7 @@ impl LinrarApp {
         {
             if item.is_dir {
                 to_navigate = Some(item.path.clone());
-            } else if is_supported_archive(&item.path) {
+            } else if item.is_archive {
                 to_open_archive = Some(item.path.clone());
             } else {
                 let _ = std::process::Command::new("xdg-open")
