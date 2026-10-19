@@ -11,6 +11,7 @@ pub mod repair;
 pub mod report;
 pub mod scanner;
 pub mod sevenzip_engine;
+pub mod sfx;
 pub mod shredder;
 pub mod smart_extract;
 pub mod tar_engine;

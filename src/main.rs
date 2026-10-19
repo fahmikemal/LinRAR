@@ -83,21 +83,48 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 "LinRAR 0.1.0 (Rust Engine) - Adding to archive: {}",
                 archive
             );
-            let res = match arch_type {
-                ArchiveType::Iso => {
-                    eprintln!(
-                        "Error: ISO images are read-only container images and cannot be created with 'add'."
-                    );
-                    std::process::exit(1);
+            let res = if args.sfx
+                || arch_type == ArchiveType::Sfx
+                || archive.ends_with(".sfx")
+                || archive.ends_with(".run")
+            {
+                let is_shell = archive.ends_with(".run");
+                let sfx_format = if is_shell {
+                    crate::core::sfx::SfxFormat::Shell
+                } else {
+                    crate::core::sfx::SfxFormat::Elf
+                };
+                let sfx_opts = crate::core::sfx::SfxOptions {
+                    format: sfx_format,
+                    title: arch_path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "LinRAR SFX Archive".to_string()),
+                    default_dir: ".".to_string(),
+                    run_after: None,
+                    overwrite: true,
+                    quiet: false,
+                };
+                crate::core::sfx::SfxEngine::create_sfx(&arch_path, &sources, &sfx_opts)
+            } else {
+                match arch_type {
+                    ArchiveType::Iso => {
+                        eprintln!(
+                            "Error: ISO images are read-only container images and cannot be created with 'add'."
+                        );
+                        std::process::exit(1);
+                    }
+                    ArchiveType::Zip => ZipEngine::create(&arch_path, &sources, &options),
+                    ArchiveType::TarGz
+                    | ArchiveType::TarBz2
+                    | ArchiveType::TarXz
+                    | ArchiveType::TarZst
+                    | ArchiveType::Tar => {
+                        TarEngine::create(&arch_path, &sources, arch_type, &options)
+                    }
+                    ArchiveType::SevenZip => SevenZipEngine::create(&arch_path, &sources, &options),
+                    _ => RarEngine::create(&arch_path, &sources, &options),
                 }
-                ArchiveType::Zip => ZipEngine::create(&arch_path, &sources, &options),
-                ArchiveType::TarGz
-                | ArchiveType::TarBz2
-                | ArchiveType::TarXz
-                | ArchiveType::TarZst
-                | ArchiveType::Tar => TarEngine::create(&arch_path, &sources, arch_type, &options),
-                ArchiveType::SevenZip => SevenZipEngine::create(&arch_path, &sources, &options),
-                _ => RarEngine::create(&arch_path, &sources, &options),
             };
 
             match res {
@@ -173,6 +200,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                             .map(|(_, e)| e)
                     }
                     ArchiveType::Iso => IsoEngine::read_entries(&arch_path).map(|(_, e)| e),
+                    ArchiveType::Sfx => {
+                        crate::core::sfx::SfxEngine::read_entries(&arch_path).map(|(_, e)| e)
+                    }
                     _ => RarEngine::read_entries(&arch_path).map(|(_, e)| e),
                 };
                 match entries_res {
@@ -240,6 +270,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     args.password.as_deref(),
                 ),
                 ArchiveType::Iso => IsoEngine::extract(&arch_path, &dest_path, selected),
+                ArchiveType::Sfx => {
+                    crate::core::sfx::SfxEngine::extract(&arch_path, &dest_path, selected)
+                }
                 _ => RarEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref()),
             };
 
@@ -301,6 +334,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     SevenZipEngine::read_entries(&arch_path, args.password.as_deref())
                 }
                 ArchiveType::Iso => IsoEngine::read_entries(&arch_path),
+                ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(&arch_path),
                 _ => RarEngine::read_entries(&arch_path),
             };
 
@@ -346,6 +380,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 | ArchiveType::Tar => TarEngine::test(&arch_path, arch_type),
                 ArchiveType::SevenZip => SevenZipEngine::test(&arch_path, args.password.as_deref()),
                 ArchiveType::Iso => IsoEngine::test(&arch_path),
+                ArchiveType::Sfx => {
+                    crate::core::sfx::SfxEngine::read_entries(&arch_path).map(|_| true)
+                }
                 _ => RarEngine::test(&arch_path),
             };
             match res {
@@ -644,6 +681,63 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 }
                 std::process::exit(1);
             }
+        }
+
+        Commands::Sfx {
+            archive,
+            output,
+            title,
+            target_dir,
+            run_after,
+            shell,
+        } => {
+            let src_path = PathBuf::from(&archive);
+            let format = if shell || archive.ends_with(".run") {
+                crate::core::sfx::SfxFormat::Shell
+            } else {
+                crate::core::sfx::SfxFormat::Elf
+            };
+
+            let out_path = if let Some(out) = output {
+                PathBuf::from(out)
+            } else {
+                let stem = src_path.file_stem().unwrap_or_default().to_string_lossy();
+                src_path.with_file_name(format!("{}.{}", stem, format.extension()))
+            };
+
+            let sfx_title = title.unwrap_or_else(|| {
+                src_path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            });
+
+            let opts = crate::core::sfx::SfxOptions {
+                format,
+                title: sfx_title,
+                default_dir: target_dir.unwrap_or_else(|| ".".to_string()),
+                run_after,
+                overwrite: true,
+                quiet: false,
+            };
+
+            println!(
+                "LinRAR 0.1.0 - Converting archive to SFX: {} -> {}",
+                archive,
+                out_path.display()
+            );
+
+            if let Err(e) = crate::core::sfx::SfxEngine::convert_to_sfx(&src_path, &out_path, &opts)
+            {
+                eprintln!("Error creating SFX: {}", e);
+                std::process::exit(1);
+            }
+
+            println!(
+                "Done. Self-extracting archive created successfully: {}",
+                out_path.display()
+            );
         }
     }
 }

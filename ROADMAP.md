@@ -29,7 +29,7 @@ Dokumen ini melacak perbandingan fitur **LinRAR** terhadap standar *archive mana
 | **Arsip** | Archive Converter | Konversi otomatis antar-format | **Full** | `converter.rs` (`ArchiveConverter`) |
 | **Arsip** | Archive Content Report | Ekspor inventaris HTML & TXT | **Full** | `report.rs` (`ArchiveReport`) |
 | **Arsip** | Smart Bypass (High-Speed Archiving) | Skip re-compressing media (mp4, jpg) | **Full** | `bypass.rs` (`SmartBypass`) + ZIP/7z engines |
-| **Arsip** | Self-Extracting Archive (SFX) | Linux ELF executable stub | **Planned** | Roadmap Fase 3 |
+| **Arsip** | Self-Extracting Archive (SFX) | Linux ELF executable & Shell .run | **Full** | `sfx.rs` (`SfxEngine`) |
 | **GUI & UX** | Unified CSD Titlebar | Vector-drawn controls, borderless resize | **Full** | `app.rs` (`custom_title_bar`) |
 | **GUI & UX** | Quick Look / In-Archive File Preview | Preview teks/gambar langsung via default system app | **Full** | `app.rs` (`trigger_view_file`, double-click) |
 | **GUI & UX** | Drag-and-Drop (DND) File Manager | Drag file/arsip dari Dolphin/Nautilus dengan visual drop-overlay & auto-open/add | **Full** | `app.rs` (`handle_dropped_files`, `render_dnd_overlay`) |
@@ -188,7 +188,30 @@ Berikut adalah detail penyempurnaan fitur yang sebelumnya setengah terimplementa
     - Pergantian encoding secara langsung (*live hot-reloading*): Saat pengguna mengganti encoding, LinRAR langsung memuat ulang daftar isi arsip secara instan di memori tanpa mereset posisi navigasi folder pengguna.
     - Meneruskan encoding aktif secara konsisten ke dialog ekstraksi, dialog info arsip, dan pratinjau Quick Look.
   - **Integrasi CLI**:
-    - Opsi `--encoding <auto|utf8|sjis|gbk|big5|euckr|cp1251|cp1252|cp437>` pada perintah `linrar l <archive>` dan `linrar x <archive>`.
+### O. Self-Extracting Archive / SFX Executable (Linux ELF & Universal Shell .run)
+- **Implementasi**:
+  - Engine pembuat arsip mandiri yang dapat mengekstrak dirinya sendiri (*Self-Extracting Archive* / SFX) `SfxEngine` di `src/core/sfx.rs`. Fitur benchmark standar industri ala WinRAR "Create SFX archive (.exe)" dan 7-Zip "SFX module", disesuaikan secara natif untuk ekosistem Linux.
+  - **Dukungan Format Ganda (Dual SFX Modules)**:
+    - *Linux Native Executable (.sfx / .bin)*: Binari ELF 64-bit standalone yang memuat stub C berbobot sangat ringan (~19 KB dikompilasi via `gcc -Os -s`). Stub ini membaca header `LINRSFX1`, payload stream `tar.gz`, dan footer magic `LRSFXEND` pada `EOF - 16` byte. Dapat dijalankan langsung di terminal (`./installer.sfx`) atau didouble-click dari desktop manager Linux.
+    - *Universal POSIX Shell SFX (.run / .sh)*: Skrip shell POSIX murni yang portabel di seluruh distro Linux (Ubuntu, Fedora, Arch, Alpine, Debian) tanpa ketergantungan arsitektur CPU, mengekstrak payload terkompresi menggunakan perkakas bawaan sistem (`tar`).
+  - **Fitur CLI Binari SFX Mandiri**:
+    - `-d, --target <DIR>`: Mengekstrak berkas ke direktori tujuan kustom (mendukung default direktori yang dikonfigurasi).
+    - `-l, --list`: Menampilkan daftar isi arsip di terminal tanpa mengekstrak.
+    - `-t, --test`: Menguji integritas data arsip mandiri.
+    - `-y, --overwrite`: Menimpa berkas yang ada tanpa konfirmasi.
+    - `-q, --quiet`: Mode senyap untuk instalasi otomatis / skrip background CI/CD.
+    - `-h, --help`: Bantuan parameter baris perintah lengkap.
+  - **Opsi Lanjutan (Post-Extract Command & Desktop GUI Prompt)**:
+    - *Run After Extraction*: Menjalankan perintah atau skrip installer secara otomatis setelah berkas selesai diekstrak (contoh: `./setup.sh`, `./install.bin`).
+    - *Desktop GUI Prompt*: Jika binari SFX dijalankan di desktop Linux (GNOME/KDE/XFCE) secara non-interaktif tanpa parameter target, stub secara cerdas menampilkan dialog pop-up (`zenity`) untuk menanyakan folder tujuan ke pengguna.
+  - **Penjelajahan & Ekstraksi Murni Rust di Dalam LinRAR**:
+    - Selain dapat dieksekusi langsung sebagai program mandiri, berkas `.sfx` dan `.run` dikenali sebagai tipe arsip resmi `ArchiveType::Sfx` oleh `detect_archive_type()`.
+    - LinRAR dapat membuka, melihat metadata, menjelajah hierarki direktori secara virtual, dan mengekstrak berkas SFX secara murni di memori menggunakan dekoder Rust `flate2` + `tar` tanpa memanggil proses eksternal.
+  - **Integrasi Penuh GUI & CLI**:
+    - *Dialog Add to Archive*: Checkbox interaktif "📦 Create SFX archive", radio button pemilihan format (.sfx ELF vs .run Shell), serta input perintah pasca-ekstraksi (*Run after*).
+    - *Menu Tools -> Convert archive to SFX... (Alt+X)*: Dialog khusus untuk mengubah arsip apa pun (ZIP, RAR, 7z, TAR, ISO) menjadi binari SFX mandiri.
+    - *CLI Subcommand & Flag*: Flag `--sfx` pada `linrar a <output> <files>... --sfx`, dan sub-perintah mandiri `linrar sfx <archive> [-o output] [-t title] [-d target_dir] [-r run_after] [-s]`.
+
 
 
 

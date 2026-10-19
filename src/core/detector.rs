@@ -40,6 +40,8 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
         ArchiveType::SevenZip
     } else if name_lower.ends_with(".iso") {
         ArchiveType::Iso
+    } else if name_lower.ends_with(".sfx") || name_lower.ends_with(".run") {
+        ArchiveType::Sfx
     } else {
         ArchiveType::Unknown
     };
@@ -130,6 +132,11 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
         if file.read_exact(&mut iso_hdr).is_ok() && &iso_hdr[1..6] == b"CD001" {
             return ArchiveType::Iso;
         }
+    }
+
+    // Check LinRAR SFX archive (ELF footer magic or Shell SFX marker)
+    if crate::core::sfx::SfxEngine::is_sfx(path) {
+        return ArchiveType::Sfx;
     }
 
     if from_extension != ArchiveType::Unknown {

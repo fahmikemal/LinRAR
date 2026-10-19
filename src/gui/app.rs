@@ -170,6 +170,7 @@ impl LinrarApp {
             }
             ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
             ArchiveType::Iso => IsoEngine::read_entries(path),
+            ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(path),
             _ => Err("Unsupported archive format".to_string()),
         };
 
@@ -419,6 +420,9 @@ impl eframe::App for LinrarApp {
         }
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::Q)) {
             self.trigger_convert_dialog();
+        }
+        if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::X)) {
+            self.trigger_sfx_dialog();
         }
         if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::S)) {
             self.trigger_scan_archive();
@@ -745,6 +749,10 @@ impl eframe::App for LinrarApp {
                     if ui.button("Convert archive... (Alt+Q)").clicked() {
                         ui.close();
                         self.trigger_convert_dialog();
+                    }
+                    if ui.button("Convert archive to SFX... (Alt+X)").clicked() {
+                        ui.close();
+                        self.trigger_sfx_dialog();
                     }
                     if ui.button("Generate report... (Ctrl+R)").clicked() {
                         ui.close();
@@ -1526,6 +1534,26 @@ impl LinrarApp {
         }
     }
 
+    fn trigger_sfx_dialog(&mut self) {
+        let arch = match self.view_mode {
+            ViewMode::VirtualArchive => self.current_archive.clone(),
+            ViewMode::LocalFileSystem => self
+                .selected_local
+                .first()
+                .filter(|p| is_supported_archive(p))
+                .cloned(),
+        };
+        if let Some(path) = arch {
+            self.dialog_state = DialogState::new_sfx(path);
+        } else {
+            self.dialog_state = DialogState::Message {
+                title: "Convert to SFX".to_string(),
+                message: "Please open or select an archive to convert to a Self-Extracting (SFX) executable.".to_string(),
+                is_error: false,
+            };
+        }
+    }
+
     fn trigger_find_dialog(&mut self) {
         let dir = match self.view_mode {
             ViewMode::LocalFileSystem => self.current_dir.clone(),
@@ -1582,6 +1610,7 @@ impl LinrarApp {
                         ),
                         ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
                         ArchiveType::Iso => IsoEngine::read_entries(path),
+                        ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(path),
                         _ => Err("Unsupported archive format".to_string()),
                     };
                     match result {
@@ -1630,6 +1659,9 @@ impl LinrarApp {
                                 SevenZipEngine::read_entries(selected_path, None)
                             }
                             ArchiveType::Iso => IsoEngine::read_entries(selected_path),
+                            ArchiveType::Sfx => {
+                                crate::core::sfx::SfxEngine::read_entries(selected_path)
+                            }
                             _ => Err("Unsupported archive format".to_string()),
                         };
                         match result {
@@ -1872,6 +1904,9 @@ impl LinrarApp {
                             SevenZipEngine::extract(arch, &temp_dir, Some(files_slice), None)
                         }
                         ArchiveType::Iso => IsoEngine::extract(arch, &temp_dir, Some(files_slice)),
+                        ArchiveType::Sfx => {
+                            crate::core::sfx::SfxEngine::extract(arch, &temp_dir, Some(files_slice))
+                        }
                         _ => RarEngine::extract(arch, &temp_dir, Some(files_slice), None),
                     };
 
@@ -1966,6 +2001,9 @@ impl LinrarApp {
                     delete_after_archiving: false,
                     shred_after_archiving: false,
                     shred_method: crate::core::shredder::ShredMethod::QuickZero,
+                    is_sfx: false,
+                    sfx_format: crate::core::sfx::SfxFormat::Elf,
+                    sfx_run_after: "".to_string(),
                 };
                 return;
             }
@@ -2179,6 +2217,9 @@ impl LinrarApp {
                 delete_after_archiving,
                 shred_after_archiving,
                 shred_method,
+                is_sfx,
+                sfx_format,
+                sfx_run_after,
             } => {
                 let mut is_open = true;
                 let win_resp = egui::Window::new("Add to Archive")
@@ -2239,6 +2280,40 @@ impl LinrarApp {
                         ui.checkbox(is_locked, "Lock archive");
                         ui.checkbox(smart_bypass, "⚡ Smart Bypass (High-Speed Archiving)")
                             .on_hover_text("Bypasses compression for already-compressed files (videos, images, audio, archives) to dramatically speed up archiving.");
+
+                        ui.separator();
+                        let was_sfx = *is_sfx;
+                        ui.checkbox(is_sfx, "📦 Create SFX archive (.sfx / .run)")
+                            .on_hover_text("Builds an autonomous self-extracting archive that can extract itself on Linux without LinRAR installed.");
+                        if *is_sfx {
+                            if !was_sfx {
+                                let p = std::path::Path::new(archive_name.as_str());
+                                let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                let parent = p.parent().unwrap_or_else(|| std::path::Path::new("."));
+                                *archive_name = parent.join(format!("{}.{}", stem, sfx_format.extension())).to_string_lossy().to_string();
+                            }
+                            ui.horizontal(|ui| {
+                                ui.add_space(20.0);
+                                ui.label("SFX Format:");
+                                if ui.selectable_value(sfx_format, crate::core::sfx::SfxFormat::Elf, crate::core::sfx::SfxFormat::Elf.display_name()).clicked() {
+                                    let p = std::path::Path::new(archive_name.as_str());
+                                    let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                    let parent = p.parent().unwrap_or_else(|| std::path::Path::new("."));
+                                    *archive_name = parent.join(format!("{}.sfx", stem)).to_string_lossy().to_string();
+                                }
+                                if ui.selectable_value(sfx_format, crate::core::sfx::SfxFormat::Shell, crate::core::sfx::SfxFormat::Shell.display_name()).clicked() {
+                                    let p = std::path::Path::new(archive_name.as_str());
+                                    let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                    let parent = p.parent().unwrap_or_else(|| std::path::Path::new("."));
+                                    *archive_name = parent.join(format!("{}.run", stem)).to_string_lossy().to_string();
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(20.0);
+                                ui.label("Post-Extract Run (optional):");
+                                ui.text_edit_singleline(sfx_run_after);
+                            });
+                        }
 
                         ui.separator();
                         ui.checkbox(delete_after_archiving, "🗑 Delete files after archiving");
@@ -2334,24 +2409,44 @@ impl LinrarApp {
                                 };
 
                                 let arch_path = PathBuf::from(&archive_name);
-                                let res = match format {
-                                    ArchiveType::Rar5 | ArchiveType::Rar4 => {
-                                        RarEngine::create(&arch_path, sources, &opts)
+                                let res = if *is_sfx {
+                                    let sfx_opts = crate::core::sfx::SfxOptions {
+                                        format: *sfx_format,
+                                        title: arch_path
+                                            .file_stem()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_string(),
+                                        default_dir: ".".to_string(),
+                                        run_after: if sfx_run_after.is_empty() {
+                                            None
+                                        } else {
+                                            Some(sfx_run_after.clone())
+                                        },
+                                        overwrite: true,
+                                        quiet: false,
+                                    };
+                                    crate::core::sfx::SfxEngine::create_sfx(&arch_path, sources, &sfx_opts)
+                                } else {
+                                    match format {
+                                        ArchiveType::Rar5 | ArchiveType::Rar4 => {
+                                            RarEngine::create(&arch_path, sources, &opts)
+                                        }
+                                        ArchiveType::Zip => {
+                                            ZipEngine::create(&arch_path, sources, &opts)
+                                        }
+                                        ArchiveType::Tar
+                                        | ArchiveType::TarGz
+                                        | ArchiveType::TarBz2
+                                        | ArchiveType::TarXz
+                                        | ArchiveType::TarZst => {
+                                            TarEngine::create(&arch_path, sources, *format, &opts)
+                                        }
+                                        ArchiveType::SevenZip => {
+                                            SevenZipEngine::create(&arch_path, sources, &opts)
+                                        }
+                                        _ => Err("Unsupported format".to_string()),
                                     }
-                                    ArchiveType::Zip => {
-                                        ZipEngine::create(&arch_path, sources, &opts)
-                                    }
-                                    ArchiveType::Tar
-                                    | ArchiveType::TarGz
-                                    | ArchiveType::TarBz2
-                                    | ArchiveType::TarXz
-                                    | ArchiveType::TarZst => {
-                                        TarEngine::create(&arch_path, sources, *format, &opts)
-                                    }
-                                    ArchiveType::SevenZip => {
-                                        SevenZipEngine::create(&arch_path, sources, &opts)
-                                    }
-                                    _ => Err("Unsupported format".to_string()),
                                 };
 
                                 close_dialog = true;
@@ -2473,6 +2568,10 @@ impl LinrarApp {
                                         ArchiveType::Iso => {
                                             IsoEngine::read_entries(&archive_path).map(|(_, e)| e)
                                         }
+                                        ArchiveType::Sfx => {
+                                            crate::core::sfx::SfxEngine::read_entries(archive_path)
+                                                .map(|(_, e)| e)
+                                        }
                                         _ => RarEngine::read_entries(&archive_path).map(|(_, e)| e),
                                     };
                                     match entries_res {
@@ -2517,6 +2616,9 @@ impl LinrarApp {
                                         SevenZipEngine::extract(archive_path, &dest, None, pwd)
                                     }
                                     ArchiveType::Iso => IsoEngine::extract(archive_path, &dest, None),
+                                    ArchiveType::Sfx => {
+                                        crate::core::sfx::SfxEngine::extract(archive_path, &dest, None)
+                                    }
                                     _ => Err("Unsupported format".to_string()),
                                 };
 
@@ -3021,6 +3123,174 @@ impl LinrarApp {
                         Err(e) => {
                             self.dialog_state = DialogState::Message {
                                 title: "Conversion Error".to_string(),
+                                message: e,
+                                is_error: true,
+                            };
+                        }
+                    }
+                }
+            }
+
+            DialogState::SfxArchive {
+                source_path,
+                output_path,
+                format,
+                title,
+                target_dir,
+                run_after,
+                overwrite,
+            } => {
+                let mut do_create_sfx = false;
+                let src_clone = source_path.clone();
+                let out_clone = PathBuf::from(&output_path);
+                let opts = crate::core::sfx::SfxOptions {
+                    format: *format,
+                    title: title.clone(),
+                    default_dir: target_dir.clone(),
+                    run_after: if run_after.is_empty() {
+                        None
+                    } else {
+                        Some(run_after.clone())
+                    },
+                    overwrite: *overwrite,
+                    quiet: false,
+                };
+
+                let mut is_open = true;
+                let win_resp = egui::Window::new("Convert Archive to SFX Executable")
+                    .open(&mut is_open)
+                    .order(egui::Order::Foreground)
+                    .pivot(egui::Align2::CENTER_CENTER)
+                    .default_pos(center)
+                    .resizable(false)
+                    .collapsible(false)
+                    .default_width(420.0)
+                    .show(ctx, |ui| {
+                        ui.label(
+                            RichText::new(
+                                "Builds an autonomous self-extracting archive executable.",
+                            )
+                            .size(12.0),
+                        );
+                        ui.separator();
+
+                        ui.horizontal(|ui| {
+                            ui.label("Source Archive:");
+                            ui.label(
+                                RichText::new(
+                                    source_path
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy(),
+                                )
+                                .strong(),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Output File:");
+                            ui.text_edit_singleline(output_path);
+                            if ui.button("Browse...").clicked()
+                                && let Some(file) = rfd::FileDialog::new()
+                                    .set_file_name(format!("{}.{}", title, format.extension()))
+                                    .save_file()
+                            {
+                                *output_path = file.to_string_lossy().to_string();
+                            }
+                        });
+
+                        ui.separator();
+                        ui.label("SFX Format:");
+                        ui.horizontal(|ui| {
+                            if ui
+                                .selectable_value(
+                                    format,
+                                    crate::core::sfx::SfxFormat::Elf,
+                                    crate::core::sfx::SfxFormat::Elf.display_name(),
+                                )
+                                .clicked()
+                            {
+                                let p = std::path::Path::new(output_path.as_str());
+                                let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                let parent =
+                                    p.parent().unwrap_or_else(|| std::path::Path::new("."));
+                                *output_path = parent
+                                    .join(format!("{}.sfx", stem))
+                                    .to_string_lossy()
+                                    .to_string();
+                            }
+                            if ui
+                                .selectable_value(
+                                    format,
+                                    crate::core::sfx::SfxFormat::Shell,
+                                    crate::core::sfx::SfxFormat::Shell.display_name(),
+                                )
+                                .clicked()
+                            {
+                                let p = std::path::Path::new(output_path.as_str());
+                                let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                let parent =
+                                    p.parent().unwrap_or_else(|| std::path::Path::new("."));
+                                *output_path = parent
+                                    .join(format!("{}.run", stem))
+                                    .to_string_lossy()
+                                    .to_string();
+                            }
+                        });
+
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("SFX Title:");
+                            ui.text_edit_singleline(title);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Default Extract Folder:");
+                            ui.text_edit_singleline(target_dir);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Run After Extract (optional):");
+                            ui.text_edit_singleline(run_after);
+                        });
+
+                        ui.checkbox(overwrite, "Overwrite files without prompting");
+
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button(RichText::new("📦 Create SFX").strong()).clicked() {
+                                do_create_sfx = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                close_dialog = true;
+                            }
+                        });
+                    });
+
+                if let Some(r) = win_resp {
+                    dialog_window_rect = Some(r.response.rect);
+                }
+                if !is_open {
+                    close_dialog = true;
+                }
+
+                if do_create_sfx {
+                    match crate::core::sfx::SfxEngine::convert_to_sfx(&src_clone, &out_clone, &opts)
+                    {
+                        Ok(()) => {
+                            self.dialog_state = DialogState::Message {
+                                title: "Convert to SFX".to_string(),
+                                message: format!(
+                                    "Self-extracting archive created successfully!\nSaved to: {}",
+                                    out_clone.display()
+                                ),
+                                is_error: false,
+                            };
+                            self.refresh_local();
+                        }
+                        Err(e) => {
+                            self.dialog_state = DialogState::Message {
+                                title: "SFX Creation Error".to_string(),
                                 message: e,
                                 is_error: true,
                             };

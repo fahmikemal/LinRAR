@@ -69,6 +69,9 @@ pub struct Cli {
     )]
     pub encoding: Option<String>,
 
+    #[arg(long = "sfx", help = "Create self-extracting archive (SFX executable)")]
+    pub sfx: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 
@@ -202,6 +205,27 @@ pub enum Commands {
             help = "Shredding method (quick, random, dod, gutmann)"
         )]
         method: String,
+    },
+
+    #[command(
+        name = "sfx",
+        about = "Convert archive to self-extracting executable or create SFX"
+    )]
+    Sfx {
+        archive: String,
+        #[arg(help = "Output SFX executable path [default: <archive>.sfx]")]
+        output: Option<String>,
+        #[arg(long, help = "SFX archive title/description")]
+        title: Option<String>,
+        #[arg(long, help = "Default extraction target directory [default: .]")]
+        target_dir: Option<String>,
+        #[arg(long, help = "Command to run after extraction")]
+        run_after: Option<String>,
+        #[arg(
+            long = "shell",
+            help = "Create universal POSIX shell script (.run) instead of ELF executable (.sfx)"
+        )]
+        shell: bool,
     },
 }
 

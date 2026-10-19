@@ -12,6 +12,7 @@ use crate::core::rar_engine::RarEngine;
 use crate::core::report::{ArchiveReport, ReportFormat};
 use crate::core::scanner::VirusScanner;
 use crate::core::sevenzip_engine::SevenZipEngine;
+use crate::core::sfx::{SfxEngine, SfxFormat, SfxOptions};
 use crate::core::shredder::{FileShredder, ShredMethod};
 use crate::core::smart_extract::SmartExtractor;
 use crate::core::tar_engine::TarEngine;
@@ -1363,4 +1364,161 @@ fn test_zip_gbk_anti_mojibake() {
     assert!(extracted_file.exists());
     let read_back = fs::read_to_string(&extracted_file).unwrap();
     assert_eq!(read_back, "Chinese GBK File Content!");
+}
+
+#[test]
+fn test_sfx_elf_creation_and_execution() {
+    let (tmp, sources) = setup_test_files();
+    let sfx_path = tmp.path().join("installer.sfx");
+
+    let options = SfxOptions {
+        format: SfxFormat::Elf,
+        title: "Test ELF SFX App".to_string(),
+        default_dir: ".".to_string(),
+        run_after: None,
+        overwrite: true,
+        quiet: false,
+    };
+
+    // 1. Create ELF SFX
+    SfxEngine::create_sfx(&sfx_path, &sources, &options).expect("Failed to create ELF SFX");
+    assert!(sfx_path.exists());
+
+    // 2. Detection
+    assert!(SfxEngine::is_sfx(&sfx_path));
+    assert_eq!(detect_archive_type(&sfx_path), ArchiveType::Sfx);
+
+    // 3. Metadata
+    let meta = SfxEngine::read_metadata(&sfx_path).expect("Failed to read SFX metadata");
+    assert_eq!(meta.title, "Test ELF SFX App");
+    assert_eq!(meta.format, SfxFormat::Elf);
+
+    // 4. In-App listing
+    let (_, entries) = SfxEngine::read_entries(&sfx_path).expect("Failed to read entries");
+    assert!(entries.iter().any(|e| e.name == "hello.txt"));
+    assert!(entries.iter().any(|e| e.name == "data.json"));
+    assert!(entries.iter().any(|e| e.name.contains("nested.txt")));
+
+    // 5. Direct Execution: --list
+    let output = std::process::Command::new(&sfx_path)
+        .arg("-l")
+        .output()
+        .expect("Failed to run SFX executable");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello.txt"));
+    assert!(stdout.contains("data.json"));
+
+    // 6. Direct Execution: --test
+    let test_output = std::process::Command::new(&sfx_path)
+        .arg("-t")
+        .output()
+        .expect("Failed to run SFX test");
+    assert!(test_output.status.success());
+
+    // 7. Direct Execution: -d <dest> -q
+    let direct_dest = tmp.path().join("direct_extracted");
+    let extract_output = std::process::Command::new(&sfx_path)
+        .args(["-d", direct_dest.to_str().unwrap(), "-q", "-y"])
+        .output()
+        .expect("Failed to extract via SFX CLI");
+    assert!(extract_output.status.success());
+    assert!(direct_dest.join("hello.txt").exists());
+    assert_eq!(
+        fs::read_to_string(direct_dest.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+
+    // 8. In-App extraction
+    let app_dest = tmp.path().join("app_extracted");
+    SfxEngine::extract(&sfx_path, &app_dest, None).expect("Failed in-app SFX extraction");
+    assert!(app_dest.join("data.json").exists());
+    assert!(app_dest.join("subfolder/nested.txt").exists());
+}
+
+#[test]
+fn test_sfx_shell_creation_and_execution() {
+    let (tmp, sources) = setup_test_files();
+    let run_path = tmp.path().join("installer.run");
+
+    let options = SfxOptions {
+        format: SfxFormat::Shell,
+        title: "Test Universal Shell SFX".to_string(),
+        default_dir: ".".to_string(),
+        run_after: None,
+        overwrite: true,
+        quiet: false,
+    };
+
+    // 1. Create Shell SFX
+    SfxEngine::create_sfx(&run_path, &sources, &options).expect("Failed to create Shell SFX");
+    assert!(run_path.exists());
+
+    // 2. Detection
+    assert!(SfxEngine::is_sfx(&run_path));
+    assert_eq!(detect_archive_type(&run_path), ArchiveType::Sfx);
+
+    // 3. Metadata
+    let meta = SfxEngine::read_metadata(&run_path).expect("Failed to read Shell SFX metadata");
+    assert_eq!(meta.title, "Test Universal Shell SFX");
+    assert_eq!(meta.format, SfxFormat::Shell);
+
+    // 4. Execution: -l
+    let output = std::process::Command::new("/bin/sh")
+        .arg(&run_path)
+        .arg("-l")
+        .output()
+        .expect("Failed to run Shell SFX");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello.txt"));
+
+    // 5. Execution: -d <dest> -q
+    let direct_dest = tmp.path().join("shell_extracted");
+    let extract_output = std::process::Command::new("/bin/sh")
+        .arg(&run_path)
+        .args(["-d", direct_dest.to_str().unwrap(), "-q", "-y"])
+        .output()
+        .expect("Failed to extract via Shell SFX");
+    assert!(extract_output.status.success());
+    assert!(direct_dest.join("hello.txt").exists());
+    assert_eq!(
+        fs::read_to_string(direct_dest.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+}
+
+#[test]
+fn test_sfx_convert_from_zip() {
+    let (tmp, sources) = setup_test_files();
+    let zip_path = tmp.path().join("source.zip");
+    let sfx_path = tmp.path().join("converted.sfx");
+
+    let add_opts = AddOptions::default();
+    ZipEngine::create(&zip_path, &sources, &add_opts).expect("Failed to create ZIP");
+    assert!(zip_path.exists());
+
+    let options = SfxOptions {
+        format: SfxFormat::Elf,
+        title: "Converted from ZIP".to_string(),
+        default_dir: ".".to_string(),
+        run_after: None,
+        overwrite: true,
+        quiet: false,
+    };
+
+    // Convert ZIP -> SFX
+    SfxEngine::convert_to_sfx(&zip_path, &sfx_path, &options)
+        .expect("Failed to convert ZIP to SFX");
+    assert!(sfx_path.exists());
+    assert!(SfxEngine::is_sfx(&sfx_path));
+
+    // Verify extraction
+    let extract_dest = tmp.path().join("converted_extracted");
+    let status = std::process::Command::new(&sfx_path)
+        .args(["-d", extract_dest.to_str().unwrap(), "-q", "-y"])
+        .status()
+        .expect("Failed to run converted SFX");
+    assert!(status.success());
+    assert!(extract_dest.join("hello.txt").exists());
 }

@@ -23,6 +23,9 @@ pub enum DialogState {
         delete_after_archiving: bool,
         shred_after_archiving: bool,
         shred_method: crate::core::shredder::ShredMethod,
+        is_sfx: bool,
+        sfx_format: crate::core::sfx::SfxFormat,
+        sfx_run_after: String,
     },
     ExtractArchive {
         archive_path: PathBuf,
@@ -48,6 +51,15 @@ pub enum DialogState {
     ConvertArchive {
         source_path: PathBuf,
         target_format: ArchiveType,
+    },
+    SfxArchive {
+        source_path: PathBuf,
+        output_path: String,
+        format: crate::core::sfx::SfxFormat,
+        title: String,
+        target_dir: String,
+        run_after: String,
+        overwrite: bool,
     },
     RepairArchive {
         archive_path: PathBuf,
@@ -106,6 +118,30 @@ impl DialogState {
             delete_after_archiving: false,
             shred_after_archiving: false,
             shred_method: crate::core::shredder::ShredMethod::QuickZero,
+            is_sfx: false,
+            sfx_format: crate::core::sfx::SfxFormat::Elf,
+            sfx_run_after: "".to_string(),
+        }
+    }
+
+    pub fn new_sfx(path: PathBuf) -> Self {
+        let stem = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let default_out = path
+            .with_file_name(format!("{}.sfx", stem))
+            .to_string_lossy()
+            .to_string();
+        DialogState::SfxArchive {
+            source_path: path,
+            output_path: default_out,
+            format: crate::core::sfx::SfxFormat::Elf,
+            title: stem,
+            target_dir: ".".to_string(),
+            run_after: "".to_string(),
+            overwrite: true,
         }
     }
 
