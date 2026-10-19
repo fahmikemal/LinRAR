@@ -72,6 +72,27 @@ pub struct Cli {
     #[arg(long = "sfx", help = "Create self-extracting archive (SFX executable)")]
     pub sfx: bool,
 
+    #[arg(
+        long = "dict-size",
+        global = true,
+        help = "Extreme dictionary size (e.g. 64M, 128M, 256M, 1G, 2G, 4G, 16G, 64G)"
+    )]
+    pub dict_size: Option<String>,
+
+    #[arg(
+        long = "ldm",
+        global = true,
+        help = "Enable Long-Distance Matching (LDM) for extreme redundancy deduplication"
+    )]
+    pub ldm: bool,
+
+    #[arg(
+        long = "dedup",
+        global = true,
+        help = "Create LinRAR Content-Defined Deduplicated Archive (.lrz) using FastCDC + BLAKE3"
+    )]
+    pub dedup: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 
@@ -110,7 +131,11 @@ pub enum Commands {
     List { archive: String },
 
     #[command(name = "t", about = "Test archive files integrity")]
-    Test { archive: String },
+    Test {
+        archive: String,
+        #[arg(long, help = "Verify cryptographic BLAKE3 integrity")]
+        blake3: bool,
+    },
 
     #[command(name = "d", about = "Delete files from archive")]
     Delete { archive: String, files: Vec<String> },
@@ -240,6 +265,31 @@ pub enum Commands {
         first_part: String,
         #[arg(help = "Output joined file path [default: strips .001 suffix]")]
         output: Option<String>,
+    },
+
+    #[command(
+        name = "dedup",
+        about = "Create or inspect LinRAR Content-Defined Deduplicated Archive (.lrz) using FastCDC + BLAKE3"
+    )]
+    Dedup {
+        archive: String,
+        files: Vec<String>,
+        #[arg(
+            long,
+            help = "Show detailed deduplication statistics without modifying"
+        )]
+        stats: bool,
+    },
+
+    #[command(
+        name = "hash",
+        alias = "integrity",
+        about = "Compute and verify ultra-fast BLAKE3 cryptographic hashes"
+    )]
+    Hash {
+        files: Vec<String>,
+        #[arg(long, help = "Verify files against expected 64-char BLAKE3 hex hash")]
+        check: Option<String>,
     },
 }
 

@@ -1,10 +1,13 @@
 pub mod benchmark;
+pub mod blake3_integrity;
 pub mod bypass;
 pub mod converter;
+pub mod dedup;
 pub mod detector;
 pub mod encoding;
 pub mod finder;
 pub mod iso_engine;
+pub mod ldm;
 pub mod rar_engine;
 pub mod rar_parser;
 pub mod repair;

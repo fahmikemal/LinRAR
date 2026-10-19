@@ -26,6 +26,8 @@ pub enum DialogState {
         is_sfx: bool,
         sfx_format: crate::core::sfx::SfxFormat,
         sfx_run_after: String,
+        dict_size: String,
+        ldm: bool,
     },
     ExtractArchive {
         archive_path: PathBuf,
@@ -121,6 +123,8 @@ impl DialogState {
             is_sfx: false,
             sfx_format: crate::core::sfx::SfxFormat::Elf,
             sfx_run_after: "".to_string(),
+            dict_size: "".to_string(),
+            ldm: false,
         }
     }
 

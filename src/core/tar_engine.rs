@@ -68,7 +68,10 @@ impl TarEngine {
             ArchiveType::TarBz2 => Ok(Box::new(BzDecoder::new(file))),
             ArchiveType::TarXz => Ok(Box::new(XzDecoder::new(file))),
             ArchiveType::TarZst => match zstd::stream::read::Decoder::new(file) {
-                Ok(d) => Ok(Box::new(d)),
+                Ok(mut d) => {
+                    let _ = d.window_log_max(31);
+                    Ok(Box::new(d))
+                }
                 Err(e) => Err(format!("Zstandard decoder error: {e}")),
             },
             _ => Ok(Box::new(file)),
@@ -288,7 +291,15 @@ impl TarEngine {
             ArchiveType::TarBz2 => TarWriter::Bz2(BzEncoder::new(file, bz_comp)),
             ArchiveType::TarXz => TarWriter::Xz(XzEncoder::new(file, xz_level)),
             ArchiveType::TarZst => match zstd::stream::write::Encoder::new(file, zstd_level) {
-                Ok(enc) => TarWriter::Zstd(enc),
+                Ok(mut enc) => {
+                    if let Ok(Some(ldm_cfg)) = crate::core::ldm::LdmConfig::from_dict_str(
+                        options.dict_size.as_deref(),
+                        options.ldm,
+                    ) {
+                        let _ = ldm_cfg.apply_to_zstd(&mut enc);
+                    }
+                    TarWriter::Zstd(enc)
+                }
                 Err(e) => return Err(e.to_string()),
             },
             _ => TarWriter::Plain(file),

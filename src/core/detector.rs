@@ -42,6 +42,8 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
         ArchiveType::Iso
     } else if name_lower.ends_with(".sfx") || name_lower.ends_with(".run") {
         ArchiveType::Sfx
+    } else if name_lower.ends_with(".lrz") || name_lower.ends_with(".linrar") {
+        ArchiveType::Dedup
     } else {
         ArchiveType::Unknown
     };
@@ -56,6 +58,10 @@ pub fn detect_archive_type<P: AsRef<Path>>(path: P) -> ArchiveType {
         Ok(n) => n,
         Err(_) => return ArchiveType::Unknown,
     };
+
+    if bytes_read >= 8 && header.starts_with(crate::core::dedup::DEDUP_MAGIC_HEADER) {
+        return ArchiveType::Dedup;
+    }
 
     if bytes_read >= 8 && header.starts_with(RAR5_MAGIC) {
         return ArchiveType::Rar5;

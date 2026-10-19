@@ -14,6 +14,7 @@ pub enum ArchiveType {
     SevenZip,
     Iso,
     Sfx,
+    Dedup,
     Unknown,
 }
 
@@ -31,6 +32,7 @@ impl ArchiveType {
             ArchiveType::SevenZip => "7-Zip",
             ArchiveType::Iso => "ISO Image",
             ArchiveType::Sfx => "SFX Executable",
+            ArchiveType::Dedup => "LinRAR Dedup",
             ArchiveType::Unknown => "Unknown",
         }
     }
@@ -48,6 +50,7 @@ impl ArchiveType {
             ArchiveType::SevenZip => "7z",
             ArchiveType::Iso => "iso",
             ArchiveType::Sfx => "sfx",
+            ArchiveType::Dedup => "lrz",
             ArchiveType::Unknown => "bin",
         }
     }
@@ -114,6 +117,9 @@ pub struct AddOptions {
     pub delete_after_archiving: bool,
     pub shred_after_archiving: bool,
     pub shred_method: crate::core::shredder::ShredMethod,
+    pub dict_size: Option<String>,
+    pub ldm: bool,
+    pub dedup: bool,
 }
 
 impl Default for AddOptions {
@@ -131,6 +137,9 @@ impl Default for AddOptions {
             delete_after_archiving: false,
             shred_after_archiving: false,
             shred_method: crate::core::shredder::ShredMethod::QuickZero,
+            dict_size: None,
+            ldm: false,
+            dedup: false,
         }
     }
 }

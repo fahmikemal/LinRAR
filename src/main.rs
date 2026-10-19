@@ -71,6 +71,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
         delete_after_archiving,
         shred_after_archiving,
         shred_method,
+        dict_size: args.dict_size.clone(),
+        ldm: args.ldm,
+        dedup: args.dedup,
     };
 
     match cmd {
@@ -83,7 +86,48 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 "LinRAR 0.1.0 (Rust Engine) - Adding to archive: {}",
                 archive
             );
-            let res = if args.sfx
+
+            let is_dedup = args.dedup
+                || arch_type == ArchiveType::Dedup
+                || archive.ends_with(".lrz")
+                || archive.ends_with(".linrar");
+
+            let res = if is_dedup {
+                println!("Running LinRAR FastCDC + BLAKE3 Content-Defined Deduplication Engine...");
+                match crate::core::dedup::DedupEngine::create_archive(
+                    &arch_path, &sources, &options,
+                ) {
+                    Ok(stats) => {
+                        println!("Deduplication & Compression Summary:");
+                        println!(
+                            "  Original Size:       {:.2} MB ({} bytes)",
+                            stats.original_size as f64 / (1024.0 * 1024.0),
+                            stats.original_size
+                        );
+                        println!(
+                            "  Unique Chunk Data:   {:.2} MB ({} bytes)",
+                            stats.deduplicated_raw_size as f64 / (1024.0 * 1024.0),
+                            stats.deduplicated_raw_size
+                        );
+                        println!(
+                            "  Compressed Archive:  {:.2} MB ({} bytes)",
+                            stats.compressed_archive_size as f64 / (1024.0 * 1024.0),
+                            stats.compressed_archive_size
+                        );
+                        println!(
+                            "  Total Chunks:        {} (Unique: {})",
+                            stats.total_chunks, stats.unique_chunks
+                        );
+                        println!("  Deduplication Ratio: {:.2}x", stats.dedup_ratio);
+                        println!(
+                            "  Total Space Saved:   {:.1}% ({} bytes)",
+                            stats.space_saved_percent, stats.space_saved_bytes
+                        );
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
+            } else if args.sfx
                 || arch_type == ArchiveType::Sfx
                 || archive.ends_with(".sfx")
                 || archive.ends_with(".run")
@@ -203,6 +247,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     ArchiveType::Sfx => {
                         crate::core::sfx::SfxEngine::read_entries(&arch_path).map(|(_, e)| e)
                     }
+                    ArchiveType::Dedup => {
+                        crate::core::dedup::DedupEngine::read_entries(&arch_path).map(|(_, e)| e)
+                    }
                     _ => RarEngine::read_entries(&arch_path).map(|(_, e)| e),
                 };
                 match entries_res {
@@ -249,6 +296,9 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 dest_path.display()
             );
             let res = match arch_type {
+                ArchiveType::Dedup => {
+                    crate::core::dedup::DedupEngine::extract(&arch_path, &dest_path, selected)
+                }
                 ArchiveType::Zip => ZipEngine::extract_with_encoding(
                     &arch_path,
                     &dest_path,
@@ -299,14 +349,19 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             } else {
                 Some(files.as_slice())
             };
+            let arch_type = detect_archive_type(&arch_path);
 
             println!(
                 "LinRAR 0.1.0 - Extracting archive flat to: {}",
                 dest_path.display()
             );
-            if let Err(e) =
-                RarEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref())
-            {
+            let flat_res = match arch_type {
+                ArchiveType::Dedup => {
+                    crate::core::dedup::DedupEngine::extract(&arch_path, &dest_path, selected)
+                }
+                _ => RarEngine::extract(&arch_path, &dest_path, selected, args.password.as_deref()),
+            };
+            if let Err(e) = flat_res {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
@@ -322,6 +377,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 .unwrap_or_default();
 
             let res = match arch_type {
+                ArchiveType::Dedup => crate::core::dedup::DedupEngine::read_entries(&arch_path),
                 ArchiveType::Zip => ZipEngine::read_entries_with_encoding(&arch_path, encoding),
                 ArchiveType::TarGz
                 | ArchiveType::TarBz2
@@ -345,7 +401,7 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     println!("{:-<78}", "");
                     println!(
                         "{:<36} {:>12} {:>12} {:>10}",
-                        "Name", "Size", "Packed", "CRC32"
+                        "Name", "Size", "Packed", "CRC/BLAKE3"
                     );
                     println!("{:-<78}", "");
                     for e in entries {
@@ -359,6 +415,18 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                         "Total: {} files, {} bytes uncompressed",
                         info.total_files, info.unpacked_size
                     );
+                    if arch_type == ArchiveType::Dedup
+                        && let Ok(stats) = crate::core::dedup::DedupEngine::get_stats(&arch_path)
+                    {
+                        println!(
+                            "Deduplication:   {:.2}x ratio, {:.1}% space saved ({} bytes saved)",
+                            stats.dedup_ratio, stats.space_saved_percent, stats.space_saved_bytes
+                        );
+                        println!(
+                            "Chunk Pool:      {} total chunks, {} unique chunks",
+                            stats.total_chunks, stats.unique_chunks
+                        );
+                    }
                 }
                 Err(e) => {
                     eprintln!("Error listing archive: {}", e);
@@ -367,11 +435,29 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
             }
         }
 
-        Commands::Test { archive } => {
+        Commands::Test { archive, blake3 } => {
             let arch_path = PathBuf::from(&archive);
             let arch_type = detect_archive_type(&arch_path);
             println!("LinRAR 0.1.0 - Testing archive integrity: {}", archive);
+            if blake3 {
+                match crate::core::blake3_integrity::hash_file(&arch_path) {
+                    Ok(hash) => {
+                        println!(
+                            "BLAKE3 Hash: {}",
+                            crate::core::blake3_integrity::hash_to_hex(&hash)
+                        );
+                        println!(
+                            "OK - BLAKE3 Cryptographic verification completed at ultra-fast speeds."
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Error computing BLAKE3 hash: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
             let res = match arch_type {
+                ArchiveType::Dedup => crate::core::dedup::DedupEngine::test(&arch_path),
                 ArchiveType::Zip => ZipEngine::test(&arch_path, args.password.as_deref()),
                 ArchiveType::TarGz
                 | ArchiveType::TarBz2
@@ -523,10 +609,11 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                 "tar.zst" | "tzst" | "zst" => ArchiveType::TarZst,
                 "tar" => ArchiveType::Tar,
                 "7z" | "sevenzip" => ArchiveType::SevenZip,
+                "lrz" | "dedup" => ArchiveType::Dedup,
                 "rar" => ArchiveType::Rar5,
                 _ => {
                     eprintln!(
-                        "Unsupported target format '{}'. Choose from: zip, rar, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.zst",
+                        "Unsupported target format '{}'. Choose from: zip, rar, 7z, lrz, tar, tar.gz, tar.bz2, tar.xz, tar.zst",
                         target_format
                     );
                     std::process::exit(1);
@@ -769,6 +856,134 @@ fn handle_cli_command(cmd: Commands, args: &Cli) {
                     eprintln!("Error joining volumes: {}", e);
                     std::process::exit(1);
                 }
+            }
+        }
+
+        Commands::Dedup {
+            archive,
+            files,
+            stats,
+        } => {
+            let arch_path = PathBuf::from(&archive);
+            if stats {
+                println!(
+                    "LinRAR Dedup - Inspecting Deduplicated Archive: {}",
+                    archive
+                );
+                match crate::core::dedup::DedupEngine::get_stats(&arch_path) {
+                    Ok(s) => {
+                        println!("Deduplication & Compression Statistics:");
+                        println!(
+                            "  Original Size:       {:.2} MB ({} bytes)",
+                            s.original_size as f64 / (1024.0 * 1024.0),
+                            s.original_size
+                        );
+                        println!(
+                            "  Unique Chunk Data:   {:.2} MB ({} bytes)",
+                            s.deduplicated_raw_size as f64 / (1024.0 * 1024.0),
+                            s.deduplicated_raw_size
+                        );
+                        println!(
+                            "  Compressed Archive:  {:.2} MB ({} bytes)",
+                            s.compressed_archive_size as f64 / (1024.0 * 1024.0),
+                            s.compressed_archive_size
+                        );
+                        println!(
+                            "  Total Chunks:        {} (Unique: {})",
+                            s.total_chunks, s.unique_chunks
+                        );
+                        println!("  Deduplication Ratio: {:.2}x", s.dedup_ratio);
+                        println!(
+                            "  Space Saved:         {:.1}% ({} bytes)",
+                            s.space_saved_percent, s.space_saved_bytes
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Error reading dedup stats: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                let sources: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
+                println!("LinRAR FastCDC + BLAKE3 Content-Defined Deduplication Engine");
+                println!("Creating deduplicated archive: {}", archive);
+                match crate::core::dedup::DedupEngine::create_archive(
+                    &arch_path, &sources, &options,
+                ) {
+                    Ok(s) => {
+                        println!(
+                            "Done. Archive created successfully: {}",
+                            arch_path.display()
+                        );
+                        println!(
+                            "  Original Size:       {:.2} MB",
+                            s.original_size as f64 / (1024.0 * 1024.0)
+                        );
+                        println!(
+                            "  Unique Chunk Data:   {:.2} MB",
+                            s.deduplicated_raw_size as f64 / (1024.0 * 1024.0)
+                        );
+                        println!(
+                            "  Archive on Disk:     {:.2} MB",
+                            s.compressed_archive_size as f64 / (1024.0 * 1024.0)
+                        );
+                        println!(
+                            "  Total Chunks:        {} (Unique: {})",
+                            s.total_chunks, s.unique_chunks
+                        );
+                        println!("  Deduplication Ratio: {:.2}x", s.dedup_ratio);
+                        println!("  Total Space Saved:   {:.1}%", s.space_saved_percent);
+                    }
+                    Err(e) => {
+                        eprintln!("Error creating deduplicated archive: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+
+        Commands::Hash { files, check } => {
+            println!("LinRAR Cryptographic BLAKE3 Engine (Rayon Multi-Threaded)");
+            let mut failed = false;
+            for f_str in &files {
+                let p = PathBuf::from(f_str);
+                if let Some(expected) = &check {
+                    match crate::core::blake3_integrity::verify_file(&p, expected) {
+                        Ok(true) => {
+                            println!("{} -> {}  [OK: MATCHES]", expected, p.display());
+                        }
+                        Ok(false) => {
+                            let actual = crate::core::blake3_integrity::hash_file(&p)
+                                .map(|h| crate::core::blake3_integrity::hash_to_hex(&h))
+                                .unwrap_or_default();
+                            eprintln!(
+                                "{} -> {}  [FAILED: MISMATCH, expected {}]",
+                                actual,
+                                p.display(),
+                                expected
+                            );
+                            failed = true;
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading {}: {}", p.display(), e);
+                            failed = true;
+                        }
+                    }
+                } else {
+                    match crate::core::blake3_integrity::hash_file(&p) {
+                        Ok(hash) => {
+                            let hex = crate::core::blake3_integrity::hash_to_hex(&hash);
+                            println!("{}  {}", hex, p.display());
+                        }
+                        Err(e) => {
+                            eprintln!("Error hashing {}: {}", p.display(), e);
+                            failed = true;
+                        }
+                    }
+                }
+            }
+            if failed {
+                std::process::exit(1);
             }
         }
     }

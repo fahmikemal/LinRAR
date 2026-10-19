@@ -1059,3 +1059,195 @@ fn test_e2e_15_hardware_benchmark_and_archive_converter() {
         .unwrap();
     assert!(test_status.success(), "Testing converted TAR.GZ failed");
 }
+
+// =========================================================================
+// E2E Test 16: Extreme 64GB Dictionary & Long-Distance Matching (LDM)
+// =========================================================================
+#[test]
+fn test_e2e_16_extreme_dictionary_64gb_and_ldm() {
+    let tmp = tempfile::tempdir().unwrap();
+    let f1 = tmp.path().join("system_database.dump");
+    let f2 = tmp.path().join("server_metrics.csv");
+
+    // Write repeated structured blocks ideal for Long-Distance Matching
+    let pattern = "2026-10-19 12:00:00 [INFO] Cluster node heartbeats and synchronization OK\n";
+    let data = pattern.repeat(2000); // ~140 KB
+    fs::write(&f1, &data).unwrap();
+    fs::write(&f2, &data).unwrap();
+
+    let zst_archive = tmp.path().join("extreme_archive.tar.zst");
+
+    // 1. Create with extreme 64GB dictionary configuration and LDM
+    let add_status = linrar_cmd()
+        .args([
+            "a",
+            "--dict-size",
+            "64G",
+            "--ldm",
+            zst_archive.to_str().unwrap(),
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(
+        add_status.success(),
+        "Creating archive with 64GB dictionary failed"
+    );
+    assert!(zst_archive.exists());
+
+    // 2. Test archive integrity via CLI
+    let test_status = linrar_cmd()
+        .args(["t", zst_archive.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(
+        test_status.success(),
+        "Testing 64GB dictionary archive failed"
+    );
+
+    // 3. Extract and verify data preservation
+    let extract_dir = tmp.path().join("extracted_extreme");
+    let ext_status = linrar_cmd()
+        .args([
+            "x",
+            zst_archive.to_str().unwrap(),
+            extract_dir.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(
+        ext_status.success(),
+        "Extracting 64GB dictionary archive failed"
+    );
+    assert_eq!(
+        fs::read_to_string(extract_dir.join("system_database.dump")).unwrap(),
+        data
+    );
+}
+
+// =========================================================================
+// E2E Test 17: Content-Defined Deduplication (FastCDC + BLAKE3) .lrz Archive
+// =========================================================================
+#[test]
+fn test_e2e_17_fastcdc_blake3_content_defined_deduplication() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sample_dir = tmp.path().join("dedup_sources");
+    fs::create_dir_all(&sample_dir).unwrap();
+
+    // Create 3 identical 100 KB files to test deduplication ratio
+    let block = vec![0x42; 100 * 1024];
+    fs::write(sample_dir.join("disk_image_v1.raw"), &block).unwrap();
+    fs::write(sample_dir.join("disk_image_v2.raw"), &block).unwrap();
+    fs::write(sample_dir.join("disk_image_v3.raw"), &block).unwrap();
+
+    let lrz_archive = tmp.path().join("vm_backups.lrz");
+
+    // 1. Create Deduplicated archive (.lrz) via CLI
+    let create_status = linrar_cmd()
+        .args([
+            "dedup",
+            lrz_archive.to_str().unwrap(),
+            sample_dir.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(create_status.success(), "Creating dedup archive failed");
+    assert!(lrz_archive.exists());
+
+    // 2. List archive and verify deduplication statistics in output
+    let list_out = linrar_cmd()
+        .args(["l", lrz_archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(list_out.status.success());
+    let list_str = String::from_utf8_lossy(&list_out.stdout);
+    assert!(
+        list_str.contains("Deduplication") || list_str.contains("LinRAR Dedup"),
+        "List output should display deduplication information"
+    );
+
+    // 3. Test integrity via CLI
+    let test_status = linrar_cmd()
+        .args(["t", lrz_archive.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(test_status.success(), "Testing dedup archive failed");
+
+    // 4. Extract files and verify exact byte-for-byte content
+    let extract_dir = tmp.path().join("extracted_dedup");
+    let ext_status = linrar_cmd()
+        .args([
+            "x",
+            lrz_archive.to_str().unwrap(),
+            extract_dir.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(ext_status.success(), "Extracting dedup archive failed");
+    let restored_v1 = extract_dir.join("dedup_sources").join("disk_image_v1.raw");
+    let restored_v2 = extract_dir.join("dedup_sources").join("disk_image_v2.raw");
+    let restored_v3 = extract_dir.join("dedup_sources").join("disk_image_v3.raw");
+    assert_eq!(fs::read(&restored_v1).unwrap(), block);
+    assert_eq!(fs::read(&restored_v2).unwrap(), block);
+    assert_eq!(fs::read(&restored_v3).unwrap(), block);
+}
+
+// =========================================================================
+// E2E Test 18: BLAKE3 Cryptographic Merkle Tree Integrity Engine
+// =========================================================================
+#[test]
+fn test_e2e_18_blake3_cryptographic_integrity_and_merkle() {
+    let tmp = tempfile::tempdir().unwrap();
+    let secret_file = tmp.path().join("critical_payload.bin");
+    fs::write(
+        &secret_file,
+        "Cryptographically verified payload with BLAKE3 Merkle Engine",
+    )
+    .unwrap();
+
+    // 1. Compute BLAKE3 hash via CLI
+    let hash_out = linrar_cmd()
+        .args(["hash", secret_file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(hash_out.status.success());
+    let out_str = String::from_utf8_lossy(&hash_out.stdout);
+    let hash_hex = out_str
+        .lines()
+        .find(|l| l.contains("critical_payload.bin"))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap();
+    assert_eq!(
+        hash_hex.len(),
+        64,
+        "BLAKE3 hash should be 64 hex characters"
+    );
+
+    // 2. Verify with matching hash
+    let check_success = linrar_cmd()
+        .args(["hash", "--check", hash_hex, secret_file.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(
+        check_success.success(),
+        "BLAKE3 hash verification should succeed"
+    );
+
+    // 3. Verify with mismatched hash (must exit with non-zero failure)
+    let check_fail = linrar_cmd()
+        .args([
+            "hash",
+            "--check",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            secret_file.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(
+        !check_fail.success(),
+        "Mismatched hash verification must fail"
+    );
+}

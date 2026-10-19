@@ -171,6 +171,7 @@ impl LinrarApp {
             ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
             ArchiveType::Iso => IsoEngine::read_entries(path),
             ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(path),
+            ArchiveType::Dedup => crate::core::dedup::DedupEngine::read_entries(path),
             _ => Err("Unsupported archive format".to_string()),
         };
 
@@ -1443,6 +1444,7 @@ impl LinrarApp {
                     | ArchiveType::Tar => TarEngine::test(&path, arch_type),
                     ArchiveType::SevenZip => SevenZipEngine::test(&path, None),
                     ArchiveType::Iso => IsoEngine::test(&path),
+                    ArchiveType::Dedup => crate::core::dedup::DedupEngine::test(&path),
                     _ => RarEngine::test(&path),
                 };
 
@@ -1611,6 +1613,7 @@ impl LinrarApp {
                         ArchiveType::SevenZip => SevenZipEngine::read_entries(path, None),
                         ArchiveType::Iso => IsoEngine::read_entries(path),
                         ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(path),
+                        ArchiveType::Dedup => crate::core::dedup::DedupEngine::read_entries(path),
                         _ => Err("Unsupported archive format".to_string()),
                     };
                     match result {
@@ -1661,6 +1664,9 @@ impl LinrarApp {
                             ArchiveType::Iso => IsoEngine::read_entries(selected_path),
                             ArchiveType::Sfx => {
                                 crate::core::sfx::SfxEngine::read_entries(selected_path)
+                            }
+                            ArchiveType::Dedup => {
+                                crate::core::dedup::DedupEngine::read_entries(selected_path)
                             }
                             _ => Err("Unsupported archive format".to_string()),
                         };
@@ -1907,6 +1913,11 @@ impl LinrarApp {
                         ArchiveType::Sfx => {
                             crate::core::sfx::SfxEngine::extract(arch, &temp_dir, Some(files_slice))
                         }
+                        ArchiveType::Dedup => crate::core::dedup::DedupEngine::extract(
+                            arch,
+                            &temp_dir,
+                            Some(files_slice),
+                        ),
                         _ => RarEngine::extract(arch, &temp_dir, Some(files_slice), None),
                     };
 
@@ -2004,6 +2015,8 @@ impl LinrarApp {
                     is_sfx: false,
                     sfx_format: crate::core::sfx::SfxFormat::Elf,
                     sfx_run_after: "".to_string(),
+                    dict_size: "".to_string(),
+                    ldm: false,
                 };
                 return;
             }
@@ -2220,6 +2233,8 @@ impl LinrarApp {
                 is_sfx,
                 sfx_format,
                 sfx_run_after,
+                dict_size,
+                ldm,
             } => {
                 let mut is_open = true;
                 let win_resp = egui::Window::new("Add to Archive")
@@ -2229,7 +2244,7 @@ impl LinrarApp {
                     .default_pos(center)
                     .resizable(false)
                     .collapsible(false)
-                    .default_width(420.0)
+                    .default_width(440.0)
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Archive Name:");
@@ -2239,13 +2254,22 @@ impl LinrarApp {
                         ui.separator();
                         ui.label("Archive Format:");
                         ui.horizontal_wrapped(|ui| {
+                            let was_format = *format;
                             ui.radio_value(format, ArchiveType::Rar5, "RAR");
                             ui.radio_value(format, ArchiveType::Zip, "ZIP");
                             ui.radio_value(format, ArchiveType::SevenZip, "7-Zip");
+                            ui.radio_value(format, ArchiveType::Dedup, "LinRAR Dedup (.lrz)");
                             ui.radio_value(format, ArchiveType::TarGz, "TAR.GZ");
                             ui.radio_value(format, ArchiveType::TarBz2, "TAR.BZ2");
                             ui.radio_value(format, ArchiveType::TarXz, "TAR.XZ");
                             ui.radio_value(format, ArchiveType::TarZst, "TAR.ZST");
+
+                            if *format != was_format && *format == ArchiveType::Dedup {
+                                let p = std::path::Path::new(archive_name.as_str());
+                                let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+                                let parent = p.parent().unwrap_or_else(|| std::path::Path::new("."));
+                                *archive_name = parent.join(format!("{}.lrz", stem)).to_string_lossy().to_string();
+                            }
                         });
 
                         ui.separator();
@@ -2274,6 +2298,34 @@ impl LinrarApp {
                                     ui.selectable_value(level, CompressionLevel::Best, "Best (5)");
                                 });
                         });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Dictionary Size (up to 64 GB):");
+                            egui::ComboBox::from_id_salt("dict_size_combo")
+                                .selected_text(if dict_size.is_empty() {
+                                    "Default (Auto)"
+                                } else {
+                                    dict_size.as_str()
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(dict_size, "".to_string(), "Default (Auto)");
+                                    ui.selectable_value(dict_size, "64M".to_string(), "64 MB");
+                                    ui.selectable_value(dict_size, "128M".to_string(), "128 MB");
+                                    ui.selectable_value(dict_size, "256M".to_string(), "256 MB");
+                                    ui.selectable_value(dict_size, "512M".to_string(), "512 MB");
+                                    ui.selectable_value(dict_size, "1G".to_string(), "1 GB");
+                                    ui.selectable_value(dict_size, "2G".to_string(), "2 GB");
+                                    ui.selectable_value(dict_size, "4G".to_string(), "4 GB");
+                                    ui.selectable_value(dict_size, "16G".to_string(), "16 GB");
+                                    ui.selectable_value(
+                                        dict_size,
+                                        "64G".to_string(),
+                                        "64 GB (Extreme WinRAR 7.0 Parity)",
+                                    );
+                                });
+                        });
+                        ui.checkbox(ldm, "⚡ Long-Distance Matching (LDM)")
+                            .on_hover_text("Enables deep block-level redundancy matching across gigabytes of data.");
 
                         ui.separator();
                         ui.checkbox(is_solid, "Create solid archive");
@@ -2406,6 +2458,13 @@ impl LinrarApp {
                                     delete_after_archiving: *delete_after_archiving,
                                     shred_after_archiving: *shred_after_archiving,
                                     shred_method: *shred_method,
+                                    dict_size: if dict_size.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(dict_size.clone())
+                                    },
+                                    ldm: *ldm,
+                                    dedup: *format == ArchiveType::Dedup,
                                 };
 
                                 let arch_path = PathBuf::from(&archive_name);
@@ -2429,6 +2488,12 @@ impl LinrarApp {
                                     crate::core::sfx::SfxEngine::create_sfx(&arch_path, sources, &sfx_opts)
                                 } else {
                                     match format {
+                                        ArchiveType::Dedup => {
+                                            crate::core::dedup::DedupEngine::create_archive(
+                                                &arch_path, sources, &opts,
+                                            )
+                                            .map(|_| ())
+                                        }
                                         ArchiveType::Rar5 | ArchiveType::Rar4 => {
                                             RarEngine::create(&arch_path, sources, &opts)
                                         }
@@ -2568,16 +2633,23 @@ impl LinrarApp {
                                         ArchiveType::Iso => {
                                             IsoEngine::read_entries(&archive_path).map(|(_, e)| e)
                                         }
-                                        ArchiveType::Sfx => {
-                                            crate::core::sfx::SfxEngine::read_entries(archive_path)
-                                                .map(|(_, e)| e)
+                                        ArchiveType::Sfx => crate::core::sfx::SfxEngine::read_entries(
+                                            archive_path.as_path(),
+                                        )
+                                        .map(|(_, e)| e),
+                                        ArchiveType::Dedup => {
+                                            crate::core::dedup::DedupEngine::read_entries(
+                                                archive_path.as_path(),
+                                            )
+                                            .map(|(_, e)| e)
                                         }
-                                        _ => RarEngine::read_entries(&archive_path).map(|(_, e)| e),
+                                        _ => RarEngine::read_entries(archive_path.as_path())
+                                            .map(|(_, e)| e),
                                     };
                                     match entries_res {
                                         Ok(entries) => {
                                             crate::core::smart_extract::SmartExtractor::determine_destination(
-                                                &archive_path,
+                                                archive_path.as_path(),
                                                 &base_dest,
                                                 &entries,
                                             )
@@ -2591,6 +2663,11 @@ impl LinrarApp {
                                 let _ = fs::create_dir_all(&dest);
 
                                 let _ = match arch_type {
+                                    ArchiveType::Dedup => crate::core::dedup::DedupEngine::extract(
+                                        archive_path.as_path(),
+                                        &dest,
+                                        None,
+                                    ),
                                     ArchiveType::Rar5 | ArchiveType::Rar4 => {
                                         RarEngine::extract(archive_path, &dest, None, pwd)
                                     }
@@ -3087,6 +3164,11 @@ impl LinrarApp {
                             "Standard TAR Archive (.tar)",
                         );
                         ui.radio_value(target_format, ArchiveType::SevenZip, "7-Zip Archive (.7z)");
+                        ui.radio_value(
+                            target_format,
+                            ArchiveType::Dedup,
+                            "LinRAR Dedup Archive (.lrz)",
+                        );
                         ui.radio_value(target_format, ArchiveType::Rar5, "RAR 5.0 Archive (.rar)");
 
                         ui.separator();

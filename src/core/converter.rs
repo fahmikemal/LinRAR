@@ -55,6 +55,7 @@ impl ArchiveConverter {
                 SevenZipEngine::extract(src, &temp_dir, None, options.password.as_deref())
             }
             ArchiveType::Iso => IsoEngine::extract(src, &temp_dir, None),
+            ArchiveType::Dedup => crate::core::dedup::DedupEngine::extract(src, &temp_dir, None),
             _ => RarEngine::extract(src, &temp_dir, None, options.password.as_deref()),
         };
 
@@ -92,6 +93,12 @@ impl ArchiveConverter {
             ArchiveType::SevenZip => {
                 SevenZipEngine::create(&target_path, &extracted_items, options)
             }
+            ArchiveType::Dedup => crate::core::dedup::DedupEngine::create_archive(
+                &target_path,
+                &extracted_items,
+                options,
+            )
+            .map(|_| ()),
             _ => RarEngine::create(&target_path, &extracted_items, options),
         };
 

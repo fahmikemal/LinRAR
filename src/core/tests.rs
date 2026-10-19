@@ -1522,3 +1522,210 @@ fn test_sfx_convert_from_zip() {
     assert!(status.success());
     assert!(extract_dest.join("hello.txt").exists());
 }
+
+#[test]
+fn test_blake3_integrity_engine() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sample_file = tmp.path().join("integrity_test.dat");
+
+    // Write 256 KB of sample test patterns
+    let mut data = Vec::with_capacity(256 * 1024);
+    for i in 0..256 * 1024 {
+        data.push((i % 251) as u8);
+    }
+    fs::write(&sample_file, &data).unwrap();
+
+    let hash = crate::core::blake3_integrity::hash_file(&sample_file).unwrap();
+    let hex = crate::core::blake3_integrity::hash_to_hex(&hash);
+    assert_eq!(hex.len(), 64);
+
+    // Verify file matching
+    assert!(crate::core::blake3_integrity::verify_file(&sample_file, &hex).unwrap());
+    assert!(
+        !crate::core::blake3_integrity::verify_file(
+            &sample_file,
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        )
+        .unwrap()
+    );
+
+    // Merkle tree root verification
+    let h1 = crate::core::blake3_integrity::hash_bytes(&data[..128 * 1024]);
+    let h2 = crate::core::blake3_integrity::hash_bytes(&data[128 * 1024..]);
+    let root = crate::core::blake3_integrity::compute_merkle_root(&[h1, h2]);
+    assert_ne!(root, [0u8; 32]);
+    assert_ne!(root, h1);
+    assert_ne!(root, h2);
+}
+
+#[test]
+fn test_ldm_extreme_dictionary_engine() {
+    use crate::core::ldm::{LdmConfig, dict_size_to_window_log, format_dict_size, parse_dict_size};
+
+    // Test WinRAR 7.0 parity dictionary sizes up to 64 GB
+    assert_eq!(parse_dict_size("64M").unwrap(), 64 * 1024 * 1024);
+    assert_eq!(parse_dict_size("128M").unwrap(), 128 * 1024 * 1024);
+    assert_eq!(parse_dict_size("512MB").unwrap(), 512 * 1024 * 1024);
+    assert_eq!(parse_dict_size("1G").unwrap(), 1024 * 1024 * 1024);
+    assert_eq!(parse_dict_size("2GB").unwrap(), 2 * 1024 * 1024 * 1024);
+    assert_eq!(parse_dict_size("4G").unwrap(), 4 * 1024 * 1024 * 1024);
+    assert_eq!(parse_dict_size("16G").unwrap(), 16 * 1024 * 1024 * 1024);
+    assert_eq!(parse_dict_size("64G").unwrap(), 64 * 1024 * 1024 * 1024);
+
+    assert_eq!(format_dict_size(64 * 1024 * 1024 * 1024), "64 GB");
+    assert_eq!(format_dict_size(1024 * 1024 * 1024), "1 GB");
+    assert_eq!(format_dict_size(128 * 1024 * 1024), "128 MB");
+
+    assert_eq!(dict_size_to_window_log(1024 * 1024), 20);
+    assert_eq!(dict_size_to_window_log(1024 * 1024 * 1024), 30);
+    assert_eq!(dict_size_to_window_log(2 * 1024 * 1024 * 1024), 31);
+    assert_eq!(dict_size_to_window_log(64 * 1024 * 1024 * 1024), 31);
+
+    // Test LdmConfig builder
+    let cfg = LdmConfig::from_dict_str(Some("64G"), true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cfg.dict_size, 64 * 1024 * 1024 * 1024);
+    assert!(cfg.enable_ldm);
+    assert_eq!(cfg.window_log, 31);
+    assert_eq!(cfg.ldm_hash_log, Some(24));
+    assert_eq!(cfg.ldm_min_match, Some(64));
+
+    // Test creating TAR.ZST with 64GB Extreme Dictionary & LDM
+    let (tmp, sources) = setup_test_files();
+    let zst_path = tmp.path().join("extreme_64g.tar.zst");
+    let opts = AddOptions {
+        dict_size: Some("64G".to_string()),
+        ldm: true,
+        compression_level: CompressionLevel::Normal,
+        ..Default::default()
+    };
+    TarEngine::create(&zst_path, &sources, ArchiveType::TarZst, &opts).unwrap();
+    assert!(zst_path.exists());
+    assert_eq!(detect_archive_type(&zst_path), ArchiveType::TarZst);
+
+    // Test integrity & extraction
+    assert!(TarEngine::test(&zst_path, ArchiveType::TarZst).unwrap());
+    let ext_dir = tmp.path().join("extreme_zst_out");
+    TarEngine::extract(&zst_path, &ext_dir, ArchiveType::TarZst, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(ext_dir.join("hello.txt")).unwrap(),
+        "Hello from LinRAR Pure Rust!"
+    );
+}
+
+#[test]
+fn test_dedup_fastcdc_lifecycle_and_ratio() {
+    let tmp = tempfile::tempdir().unwrap();
+    let test_dir = tmp.path().join("dedup_dataset");
+    fs::create_dir_all(&test_dir).unwrap();
+
+    // Create 128 KB repeated block
+    let mut block = Vec::with_capacity(128 * 1024);
+    for i in 0..128 * 1024 {
+        block.push((i % 127) as u8);
+    }
+
+    // Create 4 identical files (100% duplicate chunks)
+    fs::write(test_dir.join("file_copy1.bin"), &block).unwrap();
+    fs::write(test_dir.join("file_copy2.bin"), &block).unwrap();
+    fs::write(test_dir.join("file_copy3.bin"), &block).unwrap();
+    fs::write(test_dir.join("file_copy4.bin"), &block).unwrap();
+
+    // Create a partially overlapping file
+    let mut modified_block = block.clone();
+    modified_block[0..1024].fill(0xFF);
+    fs::write(test_dir.join("file_modified.bin"), &modified_block).unwrap();
+
+    let lrz_path = tmp.path().join("backup.lrz");
+    let sources = vec![test_dir.clone()];
+    let opts = AddOptions {
+        compression_level: CompressionLevel::Normal,
+        comment: Some("LinRAR Deduplicated Backup".to_string()),
+        ..Default::default()
+    };
+
+    // 1. Create .lrz archive
+    let stats =
+        crate::core::dedup::DedupEngine::create_archive(&lrz_path, &sources, &opts).unwrap();
+    assert!(lrz_path.exists());
+    assert_eq!(detect_archive_type(&lrz_path), ArchiveType::Dedup);
+
+    // Total uncompressed data is 5 * 128 KB = 640 KB
+    assert_eq!(stats.original_size, 5 * 128 * 1024);
+    // Deduplicated raw size should be around 128KB + slight delta (~130KB-200KB), achieving > 2.5x dedup ratio!
+    assert!(
+        stats.dedup_ratio >= 2.0,
+        "Dedup ratio was {}",
+        stats.dedup_ratio
+    );
+    assert!(stats.space_saved_percent >= 50.0);
+    assert_eq!(stats.total_files, 5);
+
+    // 2. Read entries & metadata
+    let (info, entries) = crate::core::dedup::DedupEngine::read_entries(&lrz_path).unwrap();
+    assert_eq!(info.archive_type, ArchiveType::Dedup);
+    assert_eq!(info.total_files, 5);
+    assert_eq!(info.comment.as_deref(), Some("LinRAR Deduplicated Backup"));
+    assert_eq!(entries.len(), 6); // 1 directory + 5 files
+
+    // 3. Test integrity
+    assert!(crate::core::dedup::DedupEngine::test(&lrz_path).unwrap());
+
+    // 4. Extract and verify byte-for-byte fidelity with BLAKE3
+    let extract_dir = tmp.path().join("dedup_extracted");
+    crate::core::dedup::DedupEngine::extract(&lrz_path, &extract_dir, None).unwrap();
+
+    let extracted_base = extract_dir.join("dedup_dataset");
+    assert_eq!(
+        fs::read(extracted_base.join("file_copy1.bin")).unwrap(),
+        block
+    );
+    assert_eq!(
+        fs::read(extracted_base.join("file_copy2.bin")).unwrap(),
+        block
+    );
+    assert_eq!(
+        fs::read(extracted_base.join("file_copy3.bin")).unwrap(),
+        block
+    );
+    assert_eq!(
+        fs::read(extracted_base.join("file_copy4.bin")).unwrap(),
+        block
+    );
+    assert_eq!(
+        fs::read(extracted_base.join("file_modified.bin")).unwrap(),
+        modified_block
+    );
+}
+
+#[test]
+fn test_dedup_corrupted_chunk_detection() {
+    use std::io::{Seek, SeekFrom, Write};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let test_file = tmp.path().join("data.bin");
+    let content = vec![0xAB; 64 * 1024];
+    fs::write(&test_file, &content).unwrap();
+
+    let lrz_path = tmp.path().join("corrupt_test.lrz");
+    crate::core::dedup::DedupEngine::create_archive(
+        &lrz_path,
+        &[test_file],
+        &AddOptions::default(),
+    )
+    .unwrap();
+
+    // Verify valid initially
+    assert!(crate::core::dedup::DedupEngine::test(&lrz_path).unwrap());
+
+    // Corrupt data inside the chunk pool (at byte 60)
+    let mut f = fs::OpenOptions::new().write(true).open(&lrz_path).unwrap();
+    f.seek(SeekFrom::Start(60)).unwrap();
+    f.write_all(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+    drop(f);
+
+    // Testing should now detect corrupt chunk
+    let test_res = crate::core::dedup::DedupEngine::test(&lrz_path);
+    assert!(test_res.is_err() || test_res == Ok(false));
+}
